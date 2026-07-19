@@ -1,0 +1,41 @@
+# Amazon Q
+.amazonq/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environment
+venv/
+.env
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Models (large binary files)
+models/*.task
+models/*.tflite
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test artifacts
+test_*.db
