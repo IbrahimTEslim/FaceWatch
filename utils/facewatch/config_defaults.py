@@ -10,6 +10,7 @@ DEFAULTS = [
     ("stats_interval_sec",       5,             "int",   "Seconds between stats writes to DB.", "storage"),
 
     ("recognition_threshold",    0.60,          "float", "Cosine similarity threshold for known face match.", "recognition"),
+    ("recognition_match_strategy", "best_single", "str",   "Embedding match strategy: best_single or average.", "recognition"),
     ("unknown_match_threshold",  0.70,          "float", "Similarity threshold to match unknown re-entry.", "recognition"),
     ("max_retry_attempts",       7,             "int",   "Max retries to identify unknown face.", "recognition"),
     ("retry_interval_sec",       3,             "int",   "Seconds between re-identification retries.", "recognition"),
