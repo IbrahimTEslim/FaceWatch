@@ -61,6 +61,17 @@ class FaceQueries:
         ).fetchall()
         return [r["data"] for r in rows]
 
+    def get_embeddings_with_ids(self, face_id: int) -> list[tuple[int, bytes]]:
+        rows = self._cx.conn.execute(
+            "SELECT id, data FROM embeddings WHERE face_id=?", (face_id,)
+        ).fetchall()
+        return [(r["id"], r["data"]) for r in rows]
+
+    def delete_embedding_by_id(self, embedding_id: int) -> None:
+        with self._cx.lock:
+            self._cx.conn.execute("DELETE FROM embeddings WHERE id=?", (embedding_id,))
+            self._cx.conn.commit()
+
     def count_embeddings(self, face_id: int) -> int:
         row = self._cx.conn.execute(
             "SELECT COUNT(*) as c FROM embeddings WHERE face_id=?", (face_id,)
