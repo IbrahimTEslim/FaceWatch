@@ -1,12 +1,15 @@
 from dataclasses import dataclass, field
 
 from storage.config_store import ConfigStore
+from calibration.store import CalibrationStore
 
-# TODO (step 10): replace hardcoded thresholds with calibration-based offsets from calibration table
-_H_LOW  = 0.35
-_H_HIGH = 0.65
-_V_LOW  = 0.35
-_V_HIGH = 0.65
+# TODO (multi-monitor): iris ratios alone cannot distinguish which monitor the user
+# is looking at. Multi-monitor support requires head pose yaw (MediaPipe landmarks
+# provide enough points to compute it). Add a HeadPoseAnalyzer module, expose yaw
+# on GazeState, and let the engine map yaw ranges to monitor zones. Zero changes
+# needed in this file beyond passing yaw through GazeState.
+
+_TOLERANCE = 0.15  # ± window around calibrated center
 
 # Iris and eye landmark indices (MediaPipe 478-point model)
 _L_OUTER  = 33;  _L_INNER  = 133; _L_TOP  = 159; _L_BOTTOM  = 145; _L_IRIS = 468
@@ -50,14 +53,14 @@ def _ratio(iris: float, near: float, far: float) -> float:
     return (iris - near) / span if abs(span) > 1e-6 else 0.5
 
 
-def _direction(h: float, v: float) -> str:
-    if v < _V_LOW:
+def _direction(h: float, v: float, center_h: float, center_v: float) -> str:
+    if v < center_v - _TOLERANCE:
         return "up"
-    if v > _V_HIGH:
+    if v > center_v + _TOLERANCE:
         return "down"
-    if h < _H_LOW:
+    if h < center_h - _TOLERANCE:
         return "left"
-    if h > _H_HIGH:
+    if h > center_h + _TOLERANCE:
         return "right"
     return "center"
 
@@ -68,7 +71,8 @@ class GazeTracker:
         self._return_timer:     float = 0.0
         self._alert_active:     bool  = False
 
-    def update(self, landmarks: list, dt: float, config: ConfigStore) -> GazeState:
+    def update(self, landmarks: list, dt: float, config: ConfigStore,
+               calibration: CalibrationStore | None = None) -> GazeState:
         if not landmarks:
             # Face not present — pause all timers, return unknown state
             return GazeState(
@@ -80,6 +84,9 @@ class GazeTracker:
         alert_sec:  float = config.get("gaze_alert_sec")
         return_sec: float = config.get("gaze_return_sec")
 
+        center_h = calibration.get("gaze_center_h") if calibration else 0.50
+        center_v = calibration.get("gaze_center_v") if calibration else 0.50
+
         lm = landmarks
         h = (
             _ratio(lm[_L_IRIS].x, lm[_L_OUTER].x, lm[_L_INNER].x)
@@ -90,7 +97,7 @@ class GazeTracker:
             + _ratio(lm[_R_IRIS].y, lm[_R_TOP].y, lm[_R_BOTTOM].y)
         ) / 2.0
 
-        direction = _direction(h, v)
+        direction = _direction(h, v, center_h, center_v)
         looking_at_screen = direction == "center"
 
         if not self._alert_active:
