@@ -4,6 +4,7 @@
 DEFAULTS = [
     ("camera_index",             0,                              "int",   "Webcam index. 0=first camera.", "camera"),
     ("face_landmarker_model_path", "models/face_landmarker.task", "str",   "Path to MediaPipe FaceLandmarker .task model file.", "models"),
+    ("max_faces",                  10,                            "int",   "Maximum number of faces to detect simultaneously.", "models"),
 
     ("db_path",                  "facewatch.db","str",   "Path to SQLite database file.", "storage"),
     ("max_embeddings_per_face",  10,            "int",   "Max embeddings stored per face.", "storage"),
@@ -43,9 +44,14 @@ DEFAULTS = [
     ("focus_posture_min_cm",     45.0,          "float", "Minimum healthy camera distance in cm.", "focus"),
     ("focus_posture_max_cm",     90.0,          "float", "Maximum healthy camera distance in cm.", "focus"),
 
-    ("key_quit",         "q", "str", "Key to quit FaceWatch.",              "keys"),
-    ("key_register",     "r", "str", "Key to register current face.",       "keys"),
-    ("key_calibrate",    "c", "str", "Key to start calibration wizard.",    "keys"),
-    ("key_debug",        "d", "str", "Key to toggle debug overlay.",        "keys"),
-    ("key_force_stats",  "s", "str", "Key to force an immediate stats write.", "keys"),
+    ("box_color_known",       "0,220,0",   "str", "BGR box color for known faces.",       "ui"),
+    ("box_color_identifying",  "220,220,0", "str", "BGR box color for identifying faces.",  "ui"),
+    ("box_color_unknown",      "0,165,255", "str", "BGR box color for unknown faces.",      "ui"),
+
+    ("key_quit",              "q", "str", "Key to quit FaceWatch.",                    "keys"),
+    ("key_register",          "r", "str", "Key to register current face.",             "keys"),
+    ("key_calibrate",         "c", "str", "Key to start calibration wizard.",          "keys"),
+    ("key_debug",             "d", "str", "Key to toggle debug overlay.",              "keys"),
+    ("key_force_stats",       "s", "str", "Key to force an immediate stats write.",    "keys"),
+    ("key_force_reidentify",  "f", "str", "Key to force re-identify unknown faces.",   "keys"),
 ]

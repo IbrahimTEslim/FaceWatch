@@ -22,7 +22,10 @@ from analysis.gaze import GazeState
 def _config(**overrides):
     defaults = {
         "key_quit": "q", "key_register": "r", "key_calibrate": "c",
-        "key_debug": "d", "key_force_stats": "s",
+        "key_debug": "d", "key_force_stats": "s", "key_force_reidentify": "f",
+        "box_color_known": "0,220,0",
+        "box_color_identifying": "220,220,0",
+        "box_color_unknown": "0,165,255",
     }
     defaults.update(overrides)
     cfg = MagicMock()
@@ -43,6 +46,7 @@ def test_input_default_keys():
     assert handler.handle(ord("c")) == Action.CALIBRATE
     assert handler.handle(ord("d")) == Action.TOGGLE_DEBUG
     assert handler.handle(ord("s")) == Action.FORCE_STATS
+    assert handler.handle(ord("f")) == Action.FORCE_REIDENTIFY
     print("  [OK] Default key bindings map to correct Actions")
 
 
@@ -63,16 +67,16 @@ def test_input_custom_key_binding():
 # ── Renderer tests ────────────────────────────────────────────────────────────
 
 def test_renderer_returns_ndarray():
-    r = Renderer()
+    r = Renderer(_config())
     frame = r.draw(_blank_frame(), {}, {}, {}, {}, {}, {}, {})
     assert isinstance(frame, np.ndarray)
     print("  [OK] draw() returns ndarray on empty tracks")
 
 
 def test_renderer_draws_known_face():
-    r = Renderer()
+    r = Renderer(_config())
     tracks = {1: [100.0, 100.0, 200.0, 200.0]}
-    identities = {1: Identity(face_id=1, name="Alice", status="known")}
+    identities = {1: Identity(face_id=1, name="alice", display_name="Alice", status="known")}
     gaze = {1: GazeState(face_present=True, on_screen=True)}
     frame = r.draw(_blank_frame(), tracks, identities, gaze, {}, {1: 60.0}, {}, {1: False})
     assert isinstance(frame, np.ndarray)
@@ -80,7 +84,7 @@ def test_renderer_draws_known_face():
 
 
 def test_renderer_draws_alert():
-    r = Renderer()
+    r = Renderer(_config())
     tracks = {1: [100.0, 100.0, 200.0, 200.0]}
     identities = {1: Identity(status="unknown")}
     gaze = {1: GazeState(face_present=True, alert_active=True)}
@@ -90,7 +94,7 @@ def test_renderer_draws_alert():
 
 
 def test_renderer_debug_toggle():
-    r = Renderer()
+    r = Renderer(_config())
     assert not r._debug
     r.toggle_debug()
     assert r._debug
@@ -100,14 +104,16 @@ def test_renderer_debug_toggle():
 
 
 def test_renderer_debug_overlay():
-    r = Renderer()
+    r = Renderer(_config())
     r.toggle_debug()
     tracks = {1: [50.0, 50.0, 150.0, 150.0]}
-    identities = {1: Identity(name="Bob", status="known")}
+    identities = {1: Identity(name="bob", display_name="Bob", status="known")}
     gaze = {1: GazeState(face_present=True, direction="left", off_screen_sec=3.5)}
-    frame = r.draw(_blank_frame(), tracks, identities, gaze, {1: []}, {1: 55.0}, {1: 82.0}, {1: False})
+    demo = {1: {"age_estimate": 30, "gender": "Man", "race": "white", "face_width_cm": 14.0}}
+    frame = r.draw(_blank_frame(), tracks, identities, gaze, {1: []}, {1: 55.0}, {1: 82.0}, {1: False}, demo)
     assert isinstance(frame, np.ndarray)
-    print("  [OK] Debug overlay draws without error")
+    r.toggle_debug()  # close debug window
+    print("  [OK] Debug window draws without error")
 
 
 # ── runner ────────────────────────────────────────────────────────────────────

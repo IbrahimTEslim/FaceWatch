@@ -5,11 +5,11 @@ class FaceQueries:
     def __init__(self, cx: Connection):
         self._cx = cx
 
-    def upsert_face(self, name: str, status: str) -> int:
+    def upsert_face(self, name: str, display_name: str, status: str) -> int:
         with self._cx.lock:
             self._cx.conn.execute(
-                "INSERT OR IGNORE INTO faces (name, status, created_at) VALUES (?,?,?)",
-                (name, status, now_utc()),
+                "INSERT OR IGNORE INTO faces (name, display_name, status, created_at) VALUES (?,?,?,?)",
+                (name, display_name, status, now_utc()),
             )
             self._cx.conn.commit()
         row = self._cx.conn.execute("SELECT id FROM faces WHERE name=?", (name,)).fetchone()
@@ -27,6 +27,12 @@ class FaceQueries:
         rows = self._cx.conn.execute("SELECT * FROM faces WHERE status='known'").fetchall()
         return [dict(r) for r in rows]
 
+    def get_all_unknown_faces(self) -> list[dict]:
+        rows = self._cx.conn.execute(
+            "SELECT * FROM faces WHERE status='unknown' AND name LIKE 'unknown_%'"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def update_face_last_seen(self, face_id: int) -> None:
         with self._cx.lock:
             self._cx.conn.execute("UPDATE faces SET last_seen=? WHERE id=?", (now_utc(), face_id))
@@ -37,9 +43,12 @@ class FaceQueries:
             self._cx.conn.execute("UPDATE faces SET status=? WHERE id=?", (status, face_id))
             self._cx.conn.commit()
 
-    def rename_face(self, face_id: int, new_name: str) -> None:
+    def rename_face(self, face_id: int, name: str, display_name: str) -> None:
         with self._cx.lock:
-            self._cx.conn.execute("UPDATE faces SET name=? WHERE id=?", (new_name, face_id))
+            self._cx.conn.execute(
+                "UPDATE faces SET name=?, display_name=? WHERE id=?",
+                (name, display_name, face_id),
+            )
             self._cx.conn.commit()
 
     def delete_face(self, face_id: int) -> None:

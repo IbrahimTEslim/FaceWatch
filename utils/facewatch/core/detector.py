@@ -9,12 +9,13 @@ from storage.config_store import ConfigStore
 
 
 class FaceDetector:
-    def __init__(self, config: ConfigStore, num_faces: int = 10):
+    def __init__(self, config: ConfigStore):
         self._lock = threading.Lock()
         self._latest: FaceLandmarkerResult | None = None
         self._timestamp_ms: int = 0
 
         model_path = config.get("face_landmarker_model_path")
+        num_faces  = config.get("max_faces")
         options = FaceLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=model_path),
             running_mode=RunningMode.LIVE_STREAM,

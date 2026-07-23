@@ -3,20 +3,22 @@ from storage.config_store import ConfigStore
 
 
 class Action(Enum):
-    NONE         = auto()
-    QUIT         = auto()
-    REGISTER     = auto()
-    CALIBRATE    = auto()
-    TOGGLE_DEBUG = auto()
-    FORCE_STATS  = auto()
+    NONE             = auto()
+    QUIT             = auto()
+    REGISTER         = auto()
+    CALIBRATE        = auto()
+    TOGGLE_DEBUG     = auto()
+    FORCE_STATS      = auto()
+    FORCE_REIDENTIFY = auto()
 
 
 _KEY_MAP = {
-    "key_quit":        Action.QUIT,
-    "key_register":    Action.REGISTER,
-    "key_calibrate":   Action.CALIBRATE,
-    "key_debug":       Action.TOGGLE_DEBUG,
-    "key_force_stats": Action.FORCE_STATS,
+    "key_quit":             Action.QUIT,
+    "key_register":         Action.REGISTER,
+    "key_calibrate":        Action.CALIBRATE,
+    "key_debug":            Action.TOGGLE_DEBUG,
+    "key_force_stats":      Action.FORCE_STATS,
+    "key_force_reidentify": Action.FORCE_REIDENTIFY,
 }
 
 

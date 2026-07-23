@@ -11,16 +11,21 @@ from demographics.face_width import estimate_face_width_cm, DEFAULT_FACE_WIDTH_C
 
 class DemographicsAnalyzer:
     def __init__(self, db: Database, config: ConfigStore):
-        self._db = db
-        self._config = config
+        self._db      = db
+        self._config  = config
+        self._running: set[int] = set()
+        self._done:    set[int] = set()   # face_ids with fresh demographics, skip DB read
+        self._lock    = threading.Lock()
 
     def maybe_run(self, face_id: int, face_crop: np.ndarray) -> None:
-        """Run analysis if no record exists or weekly refresh is due."""
+        """Run analysis if no record exists or weekly refresh is due. No-op if already running or done."""
+        with self._lock:
+            if face_id in self._running or face_id in self._done:
+                return
         row = self._db.get_demographics(face_id)
         if row is None:
             self._run_async(face_id, face_crop)
             return
-
         refresh_days: int = self._config.get("demographics_refresh_days")
         last = datetime.fromisoformat(row["last_updated"].replace("Z", "+00:00"))
         age_sec = (datetime.now(timezone.utc) - last).total_seconds()
@@ -38,9 +43,15 @@ class DemographicsAnalyzer:
             return float(row["face_width_cm"])
         return DEFAULT_FACE_WIDTH_CM
 
+    def get_demographics(self, face_id: int) -> dict | None:
+        """Return demographics dict or None if not yet analyzed."""
+        return self._db.get_demographics(face_id)
+
     # ------------------------------------------------------------------
 
     def _run_async(self, face_id: int, face_crop: np.ndarray) -> None:
+        with self._lock:
+            self._running.add(face_id)
         t = threading.Thread(target=self._analyze, args=(face_id, face_crop), daemon=True)
         t.start()
 
@@ -61,4 +72,8 @@ class DemographicsAnalyzer:
             face_width_cm = estimate_face_width_cm(age, gender)
             self._db.upsert_demographics(face_id, age, gender, race, face_width_cm, conf)
         except Exception:
-            pass  # background thread — never crash the engine
+            pass
+        finally:
+            with self._lock:
+                self._running.discard(face_id)
+                self._done.add(face_id)
