@@ -1,7 +1,23 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 
 from storage.config_store import ConfigStore
+
+
+class AlertType(Enum):
+    GAZE      = "gaze"
+    PROXIMITY = "proximity"
+
+
+ALERT_LOGGABLE = frozenset({"fired", "cleared"})
+
+
+@dataclass
+class AlertContext:
+    gaze_on_screen: bool
+    dist_cm:        float
+    config:         ConfigStore
 
 
 @dataclass
@@ -23,6 +39,14 @@ class Alert(ABC):
     @property
     @abstractmethod
     def exit_sec_key(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def alert_type(self) -> AlertType: ...
+
+    @abstractmethod
+    def is_condition_met(self, ctx: AlertContext) -> bool:
+        """Return True when the alert condition is currently active."""
 
     @abstractmethod
     def _fired_message(self) -> str: ...

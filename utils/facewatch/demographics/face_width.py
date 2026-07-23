@@ -1,3 +1,6 @@
+DEFAULT_FACE_WIDTH_CM = 14.0  # adult average — fallback when demographics unavailable
+
+
 def estimate_face_width_cm(age: int, gender: str) -> float:
     """
     Returns estimated face width in cm based on age and gender.
@@ -14,7 +17,7 @@ def estimate_face_width_cm(age: int, gender: str) -> float:
     elif age < 18:
         base = 13.2
     else:
-        base = 14.0
+        base = DEFAULT_FACE_WIDTH_CM
 
     if gender and gender.lower() in ("woman", "female", "f"):
         base -= 0.5
