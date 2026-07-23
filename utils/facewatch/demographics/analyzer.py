@@ -6,9 +6,7 @@ from deepface import DeepFace
 
 from storage.db import Database
 from storage.config_store import ConfigStore
-from demographics.face_width import estimate_face_width_cm
-
-_DEFAULT_FACE_WIDTH_CM = 14.0
+from demographics.face_width import estimate_face_width_cm, DEFAULT_FACE_WIDTH_CM
 
 
 class DemographicsAnalyzer:
@@ -38,7 +36,7 @@ class DemographicsAnalyzer:
         row = self._db.get_demographics(face_id)
         if row and row["face_width_cm"]:
             return float(row["face_width_cm"])
-        return _DEFAULT_FACE_WIDTH_CM
+        return DEFAULT_FACE_WIDTH_CM
 
     # ------------------------------------------------------------------
 
