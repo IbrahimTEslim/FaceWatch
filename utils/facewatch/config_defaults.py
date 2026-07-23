@@ -42,4 +42,10 @@ DEFAULTS = [
     ("focus_weight_posture",     0.10,          "float", "Weight of good posture in Focus Score.", "focus"),
     ("focus_posture_min_cm",     45.0,          "float", "Minimum healthy camera distance in cm.", "focus"),
     ("focus_posture_max_cm",     90.0,          "float", "Maximum healthy camera distance in cm.", "focus"),
+
+    ("key_quit",         "q", "str", "Key to quit FaceWatch.",              "keys"),
+    ("key_register",     "r", "str", "Key to register current face.",       "keys"),
+    ("key_calibrate",    "c", "str", "Key to start calibration wizard.",    "keys"),
+    ("key_debug",        "d", "str", "Key to toggle debug overlay.",        "keys"),
+    ("key_force_stats",  "s", "str", "Key to force an immediate stats write.", "keys"),
 ]

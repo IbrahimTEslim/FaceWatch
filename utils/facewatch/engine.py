@@ -26,9 +26,12 @@ from alerts.base import ALERT_LOGGABLE, AlertContext
 from demographics.analyzer import DemographicsAnalyzer
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
-from storage.db.connection import now_utc
+from calibration.store import CalibrationStore
 
-_DEFAULT_FOCAL_LENGTH_PX = 600.0  # TODO step 11: replace with calibration store value
+from ui.renderer import Renderer
+from ui.input_handler import InputHandler, Action
+
+from storage.db.connection import now_utc
 
 
 def _parse_args() -> argparse.Namespace:
@@ -80,13 +83,16 @@ def run() -> None:
             db.set_config(key, str(value))
 
     # ── Init modules ──────────────────────────────────────────────────────────
-    camera_idx = args.camera if args.camera is not None else config.get("camera_index")
-    detector   = FaceDetector(config)
-    tracker    = FaceTracker()
-    recognizer = FaceRecognizer(db, config)
-    distance   = DistanceEstimator()
-    demo       = DemographicsAnalyzer(db, config)
-    alerts     = build_alerts()
+    camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
+    calibration = CalibrationStore(db)
+    detector    = FaceDetector(config)
+    tracker     = FaceTracker()
+    recognizer  = FaceRecognizer(db, config)
+    distance    = DistanceEstimator()
+    demo        = DemographicsAnalyzer(db, config)
+    alerts      = build_alerts()
+    renderer    = Renderer()
+    input_handler = InputHandler(config)
 
     # Per-track state
     expressions_map: dict[int, list[Expression]] = {}
@@ -156,10 +162,11 @@ def run() -> None:
             for expr in expressions_map[track_id]:
                 expr.update(blendshapes, landmarks, config)
 
-            gaze_state = gaze_map[track_id].update(landmarks, dt, config)
+            gaze_state = gaze_map[track_id].update(landmarks, dt, config, calibration)
 
             face_width = demo.get_face_width(identity.face_id) if identity.face_id else DEFAULT_FACE_WIDTH_CM
-            dist_cm = distance.estimate(landmarks, face_width, _DEFAULT_FOCAL_LENGTH_PX, frame_w)
+            focal_length_px = calibration.get("focal_length_px")
+            dist_cm = distance.estimate(landmarks, face_width, focal_length_px, frame_w)
 
             # ── Alerts ────────────────────────────────────────────────────────
             ctx = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
@@ -183,7 +190,7 @@ def run() -> None:
                 face_width = demo.get_face_width(identity.face_id)
                 lms        = _landmarks_list(result, track_list.index(track_id))
                 dist_cm    = distance.estimate(lms, face_width, _DEFAULT_FOCAL_LENGTH_PX, frame_w)
-                gaze_state = gaze_map[track_id].update([], 0.0, config)
+                gaze_state = gaze_map[track_id].update([], 0.0, config, calibration)
 
                 expr_stats = {e.name: e.get_interval_stats() for e in exprs}
                 total_f    = expr_stats.get("blink_left", {}).get("total_frames", 1) or 1
@@ -227,11 +234,38 @@ def run() -> None:
 
             last_stats_time = now
 
-        # ── Display (stub — renderer added in step 11) ────────────────────────
+        # ── Collect per-track state for renderer ─────────────────────────────
+        identities_snap  = {tid: recognizer.get_identity(tid) for tid in tracks}
+        gaze_snap        = dict(gaze_map)
+        distances_snap   = {}
+        focus_snap: dict[int, float] = {}
+        alert_snap: dict[int, bool]  = {}
+        for tid, bbox in tracks.items():
+            ident = identities_snap[tid]
+            fw    = demo.get_face_width(ident.face_id) if ident.face_id else DEFAULT_FACE_WIDTH_CM
+            lms   = _landmarks_list(result, list(tracks.keys()).index(tid))
+            distances_snap[tid] = distance.estimate(lms, fw, calibration.get("focal_length_px"), frame_w)
+            alert_snap[tid] = any(a.active for a in alerts)
+
+        frame = renderer.draw(
+            frame, tracks, identities_snap, gaze_snap,
+            expressions_map, distances_snap, focus_snap, alert_snap,
+        )
+
+        # ── Display + input ───────────────────────────────────────────────────
         cv2.imshow("FaceWatch", frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
+        action = input_handler.handle(cv2.waitKey(1) & 0xFF)
+
+        if action == Action.QUIT:
             break
+        elif action == Action.TOGGLE_DEBUG:
+            renderer.toggle_debug()
+        elif action == Action.FORCE_STATS:
+            last_stats_time = 0  # force stats on next iteration
+        elif action == Action.CALIBRATE:
+            pass  # TODO: launch calibration wizard flow
+        elif action == Action.REGISTER:
+            pass  # TODO: launch face registration flow
 
     cap.release()
     cv2.destroyAllWindows()
