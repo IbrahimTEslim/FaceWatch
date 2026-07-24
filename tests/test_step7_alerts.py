@@ -9,7 +9,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils", "facewatch"))
 
 from unittest.mock import MagicMock
-from alerts.base import Alert, AlertEvent
+from alerts.base import Alert, AlertEvent, AlertStatus
 from alerts.gaze_alert import GazeAlert
 from alerts.proximity_alert import ProximityAlert
 from alerts.registry import build_alerts
@@ -19,7 +19,11 @@ from alerts.registry import build_alerts
 
 def _config(enter_sec: float, exit_sec: float, enter_key: str, exit_key: str):
     cfg = MagicMock()
-    cfg.get.side_effect = lambda k: {enter_key: enter_sec, exit_key: exit_sec}[k]
+    cfg.get.side_effect = lambda k: {
+        enter_key: enter_sec,
+        exit_key: exit_sec,
+        "notifications_enabled": False,
+    }[k]
     return cfg
 
 
@@ -39,7 +43,7 @@ def test_alert_does_not_fire_before_threshold():
     for _ in range(2):
         event = alert.update(True, 1.0, cfg)
     assert not alert.active
-    assert event.status == "none"
+    assert event.status == AlertStatus.NONE
     print("  [OK] Alert does not fire before enter_sec threshold")
 
 
@@ -50,7 +54,7 @@ def test_alert_fires_at_threshold():
     for _ in range(3):
         event = alert.update(True, 1.0, cfg)
     assert alert.active
-    assert event.status == "fired"
+    assert event.status == AlertStatus.FIRED
     print("  [OK] Alert fires after enter_sec exceeded")
 
 
@@ -74,7 +78,7 @@ def test_alert_does_not_clear_before_exit_threshold():
     for _ in range(3):
         event = alert.update(False, 1.0, cfg)
     assert alert.active  # only 3s, need 5s
-    assert event.status == "none"
+    assert event.status == AlertStatus.NONE
     print("  [OK] Alert does not clear before exit_sec threshold")
 
 
@@ -87,7 +91,7 @@ def test_alert_clears_at_exit_threshold():
     for _ in range(3):
         event = alert.update(False, 1.0, cfg)
     assert not alert.active
-    assert event.status == "cleared"
+    assert event.status == AlertStatus.CLEARED
     print("  [OK] Alert clears after exit_sec exceeded")
 
 
@@ -116,7 +120,7 @@ def test_alert_can_refire_after_clearing():
     for _ in range(3):
         event = alert.update(True, 1.0, cfg)
     assert alert.active
-    assert event.status == "fired"
+    assert event.status == AlertStatus.FIRED
     print("  [OK] Alert can refire after being cleared")
 
 
@@ -142,7 +146,7 @@ def test_proximity_alert_fires():
     for _ in range(3):
         event = alert.update(True, 1.0, cfg)
     assert alert.active
-    assert event.status == "fired"
+    assert event.status == AlertStatus.FIRED
     assert "close" in event.message.lower()
     print("  [OK] ProximityAlert fires with correct message")
 

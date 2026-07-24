@@ -1,19 +1,14 @@
 ## What
-- `engine.py` — main loop skeleton: module init, per-track analysis, stats writing at interval
-- `analysis/focus.py` — compute_focus_score() pure function
-- `core/recognizer.py` — Identity dataclass + per-track recognition state (submit, get_identity, drop_track)
-- `alerts/base.py` — AlertType enum, AlertContext dataclass, ALERT_LOGGABLE constant
-- `alerts/gaze_alert.py` + `alerts/proximity_alert.py` — updated with alert_type + is_condition_met(ctx)
-- `demographics/face_width.py` — DEFAULT_FACE_WIDTH_CM as single source of truth
-- `demographics/analyzer.py` — imports DEFAULT_FACE_WIDTH_CM from face_width
+- **alerts/notifier.py** — OS desktop notification via plyer, guarded by `notifications_enabled` config
+- **alerts/manager.py** — `AlertManager` owns per-track alert instances, fixes cross-face alert contamination bug
+- **alerts/base.py** — `AlertStatus` enum (`FIRED`, `CLEARED`, `NONE`), `ALERT_LOGGABLE` uses enum members, `notify()` called on `FIRED`, module-level import
+- **alerts/gaze_alert.py** — added `notification_title` property
+- **alerts/proximity_alert.py** — added `notification_title` property
+- **config_defaults.py** — added `notifications_enabled = True`
+- **engine.py** — uses `AlertManager` instead of shared alerts list, `AlertStatus` enum for audit log
 
-## Design decisions
-- Per-track expressions and gaze: `dict[int, list[Expression]]` and `dict[int, GazeTracker]` — each face has isolated state
-- AlertContext dataclass passed to all alerts — type-safe, extensible, engine stays decoupled from alert internals
-- AlertType enum — no magic strings for alert type comparisons
-- ALERT_LOGGABLE frozenset — single place to define which events get audit-logged
-- DEFAULT_FACE_WIDTH_CM in face_width.py — used by estimate_face_width_cm, analyzer.py, and engine.py
-- _DEFAULT_FOCAL_LENGTH_PX = 600.0 in engine.py with TODO for step 11 calibration wiring
+## Bug Fixed
+Alerts were shared across all tracks — one list for all faces. If face 1 fired an alert but face 2 was on-screen, face 2's update immediately cleared it. Each track now has its own independent alert state via `AlertManager`.
 
 ## Tests
-8/8 smoke tests passed
+- 10/10 step-7 alert tests passed

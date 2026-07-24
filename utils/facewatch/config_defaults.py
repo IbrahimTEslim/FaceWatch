@@ -47,6 +47,7 @@ DEFAULTS = [
     ("box_color_known",       "0,220,0",   "str", "BGR box color for known faces.",       "ui"),
     ("box_color_identifying",  "220,220,0", "str", "BGR box color for identifying faces.",  "ui"),
     ("box_color_unknown",      "0,165,255", "str", "BGR box color for unknown faces.",      "ui"),
+    ("notifications_enabled",  True,        "bool", "Fire OS desktop notifications on alerts.", "ui"),
 
     ("key_quit",              "q", "str", "Key to quit FaceWatch.",                    "keys"),
     ("key_register",          "r", "str", "Key to register current face.",             "keys"),

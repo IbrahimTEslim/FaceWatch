@@ -20,8 +20,8 @@ from analysis.gaze import GazeTracker, GazeState
 from analysis.distance import DistanceEstimator
 from analysis.focus import compute_focus_score
 
-from alerts.registry import build_alerts
-from alerts.base import ALERT_LOGGABLE, AlertContext
+from alerts.base import ALERT_LOGGABLE, AlertContext, AlertStatus
+from alerts.manager import AlertManager
 
 from demographics.analyzer import DemographicsAnalyzer
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
@@ -129,7 +129,7 @@ def run() -> None:
     recognizer    = FaceRecognizer(db, config)
     distance      = DistanceEstimator()
     demo          = DemographicsAnalyzer(db, config)
-    alerts        = build_alerts()
+    alert_manager = AlertManager()
     renderer      = Renderer(config)
     input_handler = InputHandler(config)
     mouse         = MouseHandler()
@@ -187,6 +187,7 @@ def run() -> None:
                 expressions_map.pop(tid)
                 gaze_map.pop(tid, None)
                 gaze_states.pop(tid, None)
+                alert_manager.drop(tid)
                 recognizer.drop_track(tid)
 
         # ── Per-track analysis ────────────────────────────────────────────────
@@ -217,13 +218,11 @@ def run() -> None:
             focal_length_px = calibration.get("focal_length_px")
             dist_cm = distance.estimate(landmarks, face_width, focal_length_px, frame_w)
 
-            # ── Alerts ────────────────────────────────────────────────────────
-            ctx = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
-            for alert in alerts:
-                condition = alert.is_condition_met(ctx)
-                event = alert.update(condition, dt, config)
+            ctx    = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
+            events = alert_manager.update(track_id, ctx, dt)
+            for event in events:
                 if event.status in ALERT_LOGGABLE:
-                    db.log_audit(f"alert_{event.status}", {"message": event.message})
+                    db.log_audit(f"alert_{event.status.value}", {"message": event.message})
 
         # ── Stats write ───────────────────────────────────────────────────────
         interval_sec: int = config.get("stats_interval_sec")
@@ -259,7 +258,7 @@ def run() -> None:
                     config=config,
                 )
 
-                proximity_alerts = sum(1 for a in alerts if a.active and a.alert_type.value == "proximity")
+                proximity_alerts = sum(1 for a in alert_manager._tracks.get(track_id, []) if a.active and a.alert_type.value == "proximity")
 
                 row = {
                     "timestamp":           now_utc(),
@@ -295,7 +294,7 @@ def run() -> None:
             fw    = demo.get_face_width(ident.face_id) if ident.face_id else DEFAULT_FACE_WIDTH_CM
             lms   = _landmarks_list(result, mp_map.get(tid, -1))
             distances_snap[tid] = distance.estimate(lms, fw, calibration.get("focal_length_px"), frame_w)
-            alert_snap[tid]     = any(a.active for a in alerts)
+            alert_snap[tid] = alert_manager.active(tid)
             demo_snap[tid]      = demo.get_demographics(ident.face_id) if ident.face_id else None
 
         mouse.update_tracks(tracks, identities_snap)
