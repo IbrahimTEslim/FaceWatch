@@ -1,6 +1,7 @@
 import sys
 import time
 import argparse
+import multiprocessing
 
 import cv2
 import numpy as np
@@ -20,7 +21,7 @@ from analysis.gaze import GazeTracker, GazeState
 from analysis.distance import DistanceEstimator
 from analysis.focus import compute_focus_score
 
-from alerts.base import ALERT_LOGGABLE, AlertContext, AlertStatus
+from alerts.base import ALERT_LOGGABLE, AlertContext, AlertStatus, AlertPriority
 from alerts.manager import AlertManager
 
 from demographics.analyzer import DemographicsAnalyzer
@@ -32,6 +33,7 @@ from ui.renderer import Renderer
 from ui.input_handler import InputHandler, Action
 from ui.text_input import TextInput
 from ui.mouse_handler import MouseHandler, MouseAction
+from ui.alert_overlay import AlertOverlay
 
 from storage.db.connection import now_utc
 
@@ -133,6 +135,8 @@ def run() -> None:
     renderer      = Renderer(config)
     input_handler = InputHandler(config)
     mouse         = MouseHandler()
+    overlay       = AlertOverlay(config)
+    overlay.start()
 
     # Per-track state
     expressions_map: dict[int, list[Expression]] = {}
@@ -141,6 +145,7 @@ def run() -> None:
     text_input:      TextInput | None             = None
     pending_action:  MouseAction                  = MouseAction.NONE
     pending_track:   int | None                   = None
+    _test_overlay:   bool                         = False
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -295,8 +300,9 @@ def run() -> None:
             lms   = _landmarks_list(result, mp_map.get(tid, -1))
             distances_snap[tid] = distance.estimate(lms, fw, calibration.get("focal_length_px"), frame_w)
             alert_snap[tid] = alert_manager.active(tid)
-            demo_snap[tid]      = demo.get_demographics(ident.face_id) if ident.face_id else None
+            demo_snap[tid]  = demo.get_demographics(ident.face_id) if ident.face_id else None
 
+        overlay.set_active_priorities(alert_manager.active_priorities() if not _test_overlay else {AlertPriority.MEDIUM, AlertPriority.HIGH})
         mouse.update_tracks(tracks, identities_snap)
 
         frame = renderer.draw(
@@ -314,6 +320,8 @@ def run() -> None:
         cv2.imshow("FaceWatch", frame)
         key    = cv2.waitKey(1) & 0xFF
         action = input_handler.handle(key)
+        if key == ord("t"):
+            action = Action.TEST_OVERLAY
 
         # Feed key to text input if active
         if text_input and text_input.active:
@@ -332,6 +340,7 @@ def run() -> None:
                         identity = recognizer.get_identity(pending_track)
                         if identity.face_id:
                             db.rename_face(identity.face_id, name, display)
+                            recognizer.rename_track(pending_track, identity.face_id)
                     elif pending_action == MouseAction.REASSIGN and pending_track is not None:
                         known = db.get_face_by_name(name)
                         if known:
@@ -384,14 +393,18 @@ def run() -> None:
                 for tid in tracks:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
+            elif action == Action.TEST_OVERLAY:
+                _test_overlay = not _test_overlay
             elif action == Action.CALIBRATE:
                 pass  # TODO: launch calibration wizard flow
 
     cap.release()
     cv2.destroyAllWindows()
+    overlay.stop()
     db.log_audit("session_end", {"reason": "user_quit"})
     db.close()
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     run()

@@ -10,6 +10,7 @@ class Action(Enum):
     TOGGLE_DEBUG     = auto()
     FORCE_STATS      = auto()
     FORCE_REIDENTIFY = auto()
+    TEST_OVERLAY     = auto()
 
 
 _KEY_MAP = {

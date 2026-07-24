@@ -1,10 +1,11 @@
-from .base import Alert, AlertType, AlertContext
+from .base import Alert, AlertType, AlertPriority, AlertContext
 
 
 class ProximityAlert(Alert):
     enter_sec_key      = "proximity_alert_sec"
     exit_sec_key       = "proximity_clear_sec"
     alert_type         = AlertType.PROXIMITY
+    priority           = AlertPriority.HIGH
     notification_title = "FaceWatch — Proximity Alert"
 
     def is_condition_met(self, ctx: AlertContext) -> bool:

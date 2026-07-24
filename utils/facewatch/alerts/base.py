@@ -11,6 +11,12 @@ class AlertType(Enum):
     PROXIMITY = "proximity"
 
 
+class AlertPriority(Enum):
+    LOW    = "low"
+    MEDIUM = "medium"
+    HIGH   = "high"
+
+
 class AlertStatus(Enum):
     FIRED   = "fired"
     CLEARED = "cleared"
@@ -50,6 +56,10 @@ class Alert(ABC):
     @property
     @abstractmethod
     def alert_type(self) -> AlertType: ...
+
+    @property
+    @abstractmethod
+    def priority(self) -> AlertPriority: ...
 
     @abstractmethod
     def is_condition_met(self, ctx: AlertContext) -> bool:
