@@ -1,4 +1,4 @@
-from alerts.base import AlertContext, AlertEvent
+from alerts.base import AlertContext, AlertEvent, AlertType, AlertPriority
 from alerts.registry import build_alerts
 
 
@@ -13,6 +13,9 @@ class AlertManager:
 
     def active(self, track_id: int) -> bool:
         return any(a.active for a in self._tracks.get(track_id, []))
+
+    def active_priorities(self) -> set[AlertPriority]:
+        return {a.priority for alerts in self._tracks.values() for a in alerts if a.active}
 
     def drop(self, track_id: int) -> None:
         self._tracks.pop(track_id, None)
