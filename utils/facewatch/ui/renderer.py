@@ -218,5 +218,6 @@ class Renderer:
             label = f"{expr.name:<12} {expr.value:.2f}"
             y = _put(canvas, label, p, y, color, _FONT_XS)
             y = _bar(canvas, p, y - 4, _CARD_W - _CARD_PAD * 2, expr.value, color, h=4)
+            y += 10
             if y > cy + ch - 20:
                 break
