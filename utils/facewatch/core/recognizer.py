@@ -94,6 +94,21 @@ class FaceRecognizer:
             self._identities.pop(track_id, None)
             self._pending.discard(track_id)
 
+    def rename_track(self, track_id: int, face_id: int) -> None:
+        face = self._db.get_face_by_id(face_id)
+        if not face:
+            return
+        with self._lock:
+            identity = self._identities.get(track_id)
+            if identity:
+                self._identities[track_id] = Identity(
+                    face_id=face_id,
+                    name=face["name"],
+                    display_name=face["display_name"],
+                    status=identity.status,
+                    similarity=identity.similarity,
+                )
+
     def hard_reassign(self, track_id: int, target_face_id: int, target_display_name: str) -> None:
         """Move current track's unknown embeddings to target_face_id, update identity."""
         identity = self.get_identity(track_id)
