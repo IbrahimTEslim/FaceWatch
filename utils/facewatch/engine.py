@@ -16,12 +16,12 @@ from core.recognizer import FaceRecognizer, Identity
 
 from analysis.expressions.registry import build_expressions
 from analysis.expressions.base import Expression
-from analysis.gaze import GazeTracker
+from analysis.gaze import GazeTracker, GazeState
 from analysis.distance import DistanceEstimator
 from analysis.focus import compute_focus_score
 
-from alerts.registry import build_alerts
-from alerts.base import ALERT_LOGGABLE, AlertContext
+from alerts.base import ALERT_LOGGABLE, AlertContext, AlertStatus
+from alerts.manager import AlertManager
 
 from demographics.analyzer import DemographicsAnalyzer
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
@@ -30,6 +30,8 @@ from calibration.store import CalibrationStore
 
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler, Action
+from ui.text_input import TextInput
+from ui.mouse_handler import MouseHandler, MouseAction
 
 from storage.db.connection import now_utc
 
@@ -58,15 +60,52 @@ def _crop(frame: np.ndarray, bbox: list[float]) -> np.ndarray:
 
 
 def _blendshapes_dict(result, face_idx: int) -> dict[str, float]:
-    if not result or not result.face_blendshapes or face_idx >= len(result.face_blendshapes):
+    if not result or not result.face_blendshapes or face_idx < 0 or face_idx >= len(result.face_blendshapes):
         return {}
     return {bs.category_name: bs.score for bs in result.face_blendshapes[face_idx]}
 
 
 def _landmarks_list(result, face_idx: int) -> list:
-    if not result or not result.face_landmarks or face_idx >= len(result.face_landmarks):
+    if not result or not result.face_landmarks or face_idx < 0 or face_idx >= len(result.face_landmarks):
         return []
     return result.face_landmarks[face_idx]
+
+
+def _iou(a: list[float], b: list[float]) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    if inter == 0:
+        return 0.0
+    area_a = (ax2 - ax1) * (ay2 - ay1)
+    area_b = (bx2 - bx1) * (by2 - by1)
+    return inter / (area_a + area_b - inter)
+
+
+def _match_tracks_to_mp(result, tracks: dict[int, list[float]],
+                        frame_w: int, frame_h: int) -> dict[int, int]:
+    """Returns {track_id: mediapipe_face_index} matched by highest IoU."""
+    if not result or not result.face_landmarks:
+        return {}
+    mp_bboxes = []
+    for lms in result.face_landmarks:
+        xs = [lm.x * frame_w for lm in lms]
+        ys = [lm.y * frame_h for lm in lms]
+        mp_bboxes.append([min(xs), min(ys), max(xs), max(ys)])
+
+    mapping: dict[int, int] = {}
+    for track_id, bbox in tracks.items():
+        best_idx, best_iou = -1, 0.0
+        for i, mp_bbox in enumerate(mp_bboxes):
+            score = _iou(bbox, mp_bbox)
+            if score > best_iou:
+                best_iou = score
+                best_idx = i
+        if best_idx >= 0 and best_iou > 0.1:
+            mapping[track_id] = best_idx
+    return mapping
 
 
 
@@ -84,19 +123,24 @@ def run() -> None:
 
     # ── Init modules ──────────────────────────────────────────────────────────
     camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
-    calibration = CalibrationStore(db)
-    detector    = FaceDetector(config)
-    tracker     = FaceTracker()
-    recognizer  = FaceRecognizer(db, config)
-    distance    = DistanceEstimator()
-    demo        = DemographicsAnalyzer(db, config)
-    alerts      = build_alerts()
-    renderer    = Renderer()
+    calibration   = CalibrationStore(db)
+    detector      = FaceDetector(config)
+    tracker       = FaceTracker()
+    recognizer    = FaceRecognizer(db, config)
+    distance      = DistanceEstimator()
+    demo          = DemographicsAnalyzer(db, config)
+    alert_manager = AlertManager()
+    renderer      = Renderer(config)
     input_handler = InputHandler(config)
+    mouse         = MouseHandler()
 
     # Per-track state
     expressions_map: dict[int, list[Expression]] = {}
     gaze_map:        dict[int, GazeTracker]       = {}
+    gaze_states:     dict[int, GazeState]         = {}
+    text_input:      TextInput | None             = None
+    pending_action:  MouseAction                  = MouseAction.NONE
+    pending_track:   int | None                   = None
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -104,11 +148,12 @@ def run() -> None:
         print(f"[ERROR] Cannot open camera {camera_idx}")
         sys.exit(1)
 
-    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_w         = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     last_stats_time = time.time()
     last_time       = time.time()
 
-    print("[FaceWatch] Running. Press 'q' to quit.")
+    cv2.namedWindow("FaceWatch")
+    cv2.setMouseCallback("FaceWatch", mouse.callback)
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -133,12 +178,16 @@ def run() -> None:
 
         tracks = tracker.update(detections)
         active_track_ids = set(tracks.keys())
+        frame_h = frame.shape[0]
+        mp_map  = _match_tracks_to_mp(result, tracks, frame_w, frame_h)
 
         # Clean up disappeared tracks
         for tid in list(expressions_map.keys()):
             if tid not in active_track_ids:
                 expressions_map.pop(tid)
                 gaze_map.pop(tid, None)
+                gaze_states.pop(tid, None)
+                alert_manager.drop(tid)
                 recognizer.drop_track(tid)
 
         # ── Per-track analysis ────────────────────────────────────────────────
@@ -156,25 +205,24 @@ def run() -> None:
             if identity.status == "known" and identity.face_id is not None:
                 demo.maybe_run(identity.face_id, crop)
 
-            blendshapes = _blendshapes_dict(result, i)
-            landmarks   = _landmarks_list(result, i)
+            blendshapes = _blendshapes_dict(result, mp_map.get(track_id, -1))
+            landmarks   = _landmarks_list(result, mp_map.get(track_id, -1))
 
             for expr in expressions_map[track_id]:
                 expr.update(blendshapes, landmarks, config)
 
             gaze_state = gaze_map[track_id].update(landmarks, dt, config, calibration)
+            gaze_states[track_id] = gaze_state
 
             face_width = demo.get_face_width(identity.face_id) if identity.face_id else DEFAULT_FACE_WIDTH_CM
             focal_length_px = calibration.get("focal_length_px")
             dist_cm = distance.estimate(landmarks, face_width, focal_length_px, frame_w)
 
-            # ── Alerts ────────────────────────────────────────────────────────
-            ctx = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
-            for alert in alerts:
-                condition = alert.is_condition_met(ctx)
-                event = alert.update(condition, dt, config)
+            ctx    = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
+            events = alert_manager.update(track_id, ctx, dt)
+            for event in events:
                 if event.status in ALERT_LOGGABLE:
-                    db.log_audit(f"alert_{event.status}", {"message": event.message})
+                    db.log_audit(f"alert_{event.status.value}", {"message": event.message})
 
         # ── Stats write ───────────────────────────────────────────────────────
         interval_sec: int = config.get("stats_interval_sec")
@@ -185,11 +233,13 @@ def run() -> None:
                 identity = recognizer.get_identity(track_id)
                 if identity.status != "known" or identity.face_id is None:
                     continue
+                if not db.get_face_by_id(identity.face_id):
+                    continue
 
                 exprs      = expressions_map[track_id]
                 face_width = demo.get_face_width(identity.face_id)
-                lms        = _landmarks_list(result, track_list.index(track_id))
-                dist_cm    = distance.estimate(lms, face_width, _DEFAULT_FOCAL_LENGTH_PX, frame_w)
+                lms        = _landmarks_list(result, mp_map.get(track_id, -1))
+                dist_cm    = distance.estimate(lms, face_width, calibration.get("focal_length_px"), frame_w)
                 gaze_state = gaze_map[track_id].update([], 0.0, config, calibration)
 
                 expr_stats = {e.name: e.get_interval_stats() for e in exprs}
@@ -208,7 +258,7 @@ def run() -> None:
                     config=config,
                 )
 
-                proximity_alerts = sum(1 for a in alerts if a.active and a.alert_type.value == "proximity")
+                proximity_alerts = sum(1 for a in alert_manager._tracks.get(track_id, []) if a.active and a.alert_type.value == "proximity")
 
                 row = {
                     "timestamp":           now_utc(),
@@ -234,38 +284,108 @@ def run() -> None:
 
             last_stats_time = now
 
-        # ── Collect per-track state for renderer ─────────────────────────────
-        identities_snap  = {tid: recognizer.get_identity(tid) for tid in tracks}
-        gaze_snap        = dict(gaze_map)
-        distances_snap   = {}
-        focus_snap: dict[int, float] = {}
-        alert_snap: dict[int, bool]  = {}
+        identities_snap = {tid: recognizer.get_identity(tid) for tid in tracks}
+        distances_snap: dict[int, float] = {}
+        focus_snap:     dict[int, float] = {}
+        alert_snap:     dict[int, bool]  = {}
+        demo_snap:      dict[int, dict | None] = {}
         for tid, bbox in tracks.items():
             ident = identities_snap[tid]
             fw    = demo.get_face_width(ident.face_id) if ident.face_id else DEFAULT_FACE_WIDTH_CM
-            lms   = _landmarks_list(result, list(tracks.keys()).index(tid))
+            lms   = _landmarks_list(result, mp_map.get(tid, -1))
             distances_snap[tid] = distance.estimate(lms, fw, calibration.get("focal_length_px"), frame_w)
-            alert_snap[tid] = any(a.active for a in alerts)
+            alert_snap[tid] = alert_manager.active(tid)
+            demo_snap[tid]      = demo.get_demographics(ident.face_id) if ident.face_id else None
+
+        mouse.update_tracks(tracks, identities_snap)
 
         frame = renderer.draw(
-            frame, tracks, identities_snap, gaze_snap,
+            frame, tracks, identities_snap, gaze_states,
             expressions_map, distances_snap, focus_snap, alert_snap,
+            demo_snap,
         )
+        mouse.draw_menu(frame)
+
+        # ── Text input overlay ────────────────────────────────────────────────
+        if text_input and text_input.active:
+            text_input.draw(frame)
 
         # ── Display + input ───────────────────────────────────────────────────
         cv2.imshow("FaceWatch", frame)
-        action = input_handler.handle(cv2.waitKey(1) & 0xFF)
+        key    = cv2.waitKey(1) & 0xFF
+        action = input_handler.handle(key)
 
-        if action == Action.QUIT:
-            break
-        elif action == Action.TOGGLE_DEBUG:
-            renderer.toggle_debug()
-        elif action == Action.FORCE_STATS:
-            last_stats_time = 0  # force stats on next iteration
-        elif action == Action.CALIBRATE:
-            pass  # TODO: launch calibration wizard flow
-        elif action == Action.REGISTER:
-            pass  # TODO: launch face registration flow
+        # Feed key to text input if active
+        if text_input and text_input.active:
+            text_input.feed(key)
+            if text_input.confirmed:
+                name = text_input.normalized
+                display = text_input.value
+                existing = db.get_face_by_name(name)
+                if existing and pending_action in (MouseAction.REGISTER, MouseAction.RENAME):
+                    text_input.set_error(f"Name '{display}' already exists.")
+                else:
+                    if pending_action == MouseAction.REGISTER and pending_track is not None:
+                        crop = _crop(frame, tracks[pending_track]) if pending_track in tracks else np.zeros((1,1,3), dtype=np.uint8)
+                        recognizer.register(pending_track, display, crop)
+                    elif pending_action == MouseAction.RENAME and pending_track is not None:
+                        identity = recognizer.get_identity(pending_track)
+                        if identity.face_id:
+                            db.rename_face(identity.face_id, name, display)
+                    elif pending_action == MouseAction.REASSIGN and pending_track is not None:
+                        known = db.get_face_by_name(name)
+                        if known:
+                            recognizer.hard_reassign(pending_track, known["id"], display)
+                        else:
+                            text_input.set_error(f"No known face named '{display}'.")
+                    if text_input.confirmed:
+                        text_input      = None
+                        pending_action  = MouseAction.NONE
+                        pending_track   = None
+            elif text_input.cancelled:
+                text_input     = None
+                pending_action = MouseAction.NONE
+                pending_track  = None
+        else:
+            # Handle mouse events
+            mev = mouse.get_event()
+            if mev.action == MouseAction.REGISTER:
+                known_names = [f["display_name"] for f in db.get_all_known_faces()]
+                text_input     = TextInput("Register face — enter name:", known_names)
+                pending_action = MouseAction.REGISTER
+                pending_track  = mev.track_id
+            elif mev.action == MouseAction.RENAME:
+                text_input     = TextInput("Rename face — enter new name:")
+                pending_action = MouseAction.RENAME
+                pending_track  = mev.track_id
+            elif mev.action == MouseAction.REASSIGN:
+                known_names = [f["display_name"] for f in db.get_all_known_faces()]
+                text_input     = TextInput("Reassign to known face:", known_names)
+                pending_action = MouseAction.REASSIGN
+                pending_track  = mev.track_id
+            elif mev.action == MouseAction.DELETE:
+                if mev.track_id is not None:
+                    identity = recognizer.get_identity(mev.track_id)
+                    if identity.face_id:
+                        db.delete_face(identity.face_id)
+                        recognizer.force_reidentify(mev.track_id)
+            elif mev.action == MouseAction.REIDENTIFY:
+                if mev.track_id is not None:
+                    recognizer.force_reidentify(mev.track_id)
+
+            # Handle keyboard actions
+            if action == Action.QUIT:
+                break
+            elif action == Action.TOGGLE_DEBUG:
+                renderer.toggle_debug()
+            elif action == Action.FORCE_STATS:
+                last_stats_time = 0
+            elif action == Action.FORCE_REIDENTIFY:
+                for tid in tracks:
+                    if recognizer.get_identity(tid).status != "known":
+                        recognizer.force_reidentify(tid)
+            elif action == Action.CALIBRATE:
+                pass  # TODO: launch calibration wizard flow
 
     cap.release()
     cv2.destroyAllWindows()

@@ -175,6 +175,84 @@ def test_decode_normalizes_blob():
     print("  [OK] _decode normalizes to unit vector")
 
 
+def _make_recognizer_retry(max_attempts=3, retry_interval=2.0):
+    db = MagicMock()
+    db.get_all_known_faces.return_value = []
+    config = MagicMock()
+    config.get.side_effect = lambda k: {
+        "recognition_threshold":      0.60,
+        "recognition_match_strategy": "best_single",
+        "max_retry_attempts":         max_attempts,
+        "retry_interval_sec":         retry_interval,
+    }[k]
+    return FaceRecognizer(db, config)
+
+
+def test_retry_increments_attempt_count():
+    import core.recognizer as mod
+    orig = mod._embed
+    mod._embed = lambda _: _make_unit(seed=1)
+
+    r = _make_recognizer_retry(max_attempts=3, retry_interval=0.0)
+    crop = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    r.submit(1, crop)
+    import time; time.sleep(0.2)
+    r.submit(1, crop)
+    time.sleep(0.2)
+
+    mod._embed = orig
+    assert r._attempts.get(1, 0) >= 2
+    print(f"  [OK] Retry increments attempt count ({r._attempts.get(1, 0)} attempts)")
+
+
+def test_retry_stops_at_max_attempts():
+    import core.recognizer as mod
+    orig = mod._embed
+    mod._embed = lambda _: _make_unit(seed=1)
+
+    r = _make_recognizer_retry(max_attempts=2, retry_interval=0.0)
+    crop = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    for _ in range(5):
+        r.submit(1, crop)
+        import time; time.sleep(0.15)
+
+    mod._embed = orig
+    assert r._attempts.get(1, 0) <= 2
+    print(f"  [OK] Retry stops at max_attempts ({r._attempts.get(1, 0)} attempts)")
+
+
+def test_retry_respects_interval():
+    import core.recognizer as mod
+    orig = mod._embed
+    mod._embed = lambda _: _make_unit(seed=1)
+
+    r = _make_recognizer_retry(max_attempts=5, retry_interval=10.0)  # long interval
+    crop = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    r.submit(1, crop)
+    import time; time.sleep(0.2)
+    before = r._attempts.get(1, 0)
+    r.submit(1, crop)  # should be blocked by interval
+    time.sleep(0.1)
+    after = r._attempts.get(1, 0)
+
+    mod._embed = orig
+    assert after == before
+    print("  [OK] Retry blocked when interval has not elapsed")
+
+
+def test_drop_track_clears_retry_state():
+    r = _make_recognizer_retry()
+    r._attempts[1]     = 3
+    r._last_attempt[1] = 999.0
+    r.drop_track(1)
+    assert 1 not in r._attempts
+    assert 1 not in r._last_attempt
+    print("  [OK] drop_track clears retry state")
+
+
 # ── runner ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -188,6 +266,10 @@ if __name__ == "__main__":
         test_store_embedding_evicts_farthest_not_new,
         test_store_embedding_drops_new_if_it_is_outlier,
         test_decode_normalizes_blob,
+        test_retry_increments_attempt_count,
+        test_retry_stops_at_max_attempts,
+        test_retry_respects_interval,
+        test_drop_track_clears_retry_state,
     ]
 
     passed = 0

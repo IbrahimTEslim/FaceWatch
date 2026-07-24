@@ -4,7 +4,7 @@ import threading
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def now_utc() -> str:
@@ -25,11 +25,12 @@ class Connection:
     def _create_schema(self) -> None:
         stmts = [
             """CREATE TABLE IF NOT EXISTS faces (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                name       TEXT UNIQUE NOT NULL,
-                status     TEXT NOT NULL DEFAULT 'unknown',
-                created_at TEXT NOT NULL,
-                last_seen  TEXT
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'unknown',
+                created_at   TEXT NOT NULL,
+                last_seen    TEXT
             )""",
             """CREATE TABLE IF NOT EXISTS embeddings (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,9 +97,18 @@ class Connection:
 
     def _run_migrations(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version < SCHEMA_VERSION:
-            self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            self.conn.commit()
+        if version < 2:
+            with self.lock:
+                cols = [r[1] for r in self.conn.execute("PRAGMA table_info(faces)").fetchall()]
+                if "display_name" not in cols:
+                    self.conn.execute(
+                        "ALTER TABLE faces ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
+                    )
+                    self.conn.execute(
+                        "UPDATE faces SET display_name=name WHERE display_name=''"
+                    )
+                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self.conn.commit()
 
     @staticmethod
     def array_to_blob(arr: np.ndarray) -> bytes:

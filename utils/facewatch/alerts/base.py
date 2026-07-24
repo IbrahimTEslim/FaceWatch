@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from storage.config_store import ConfigStore
+from alerts.notifier import notify
 
 
 class AlertType(Enum):
@@ -10,7 +11,13 @@ class AlertType(Enum):
     PROXIMITY = "proximity"
 
 
-ALERT_LOGGABLE = frozenset({"fired", "cleared"})
+class AlertStatus(Enum):
+    FIRED   = "fired"
+    CLEARED = "cleared"
+    NONE    = "none"
+
+
+ALERT_LOGGABLE = frozenset({AlertStatus.FIRED, AlertStatus.CLEARED})
 
 
 @dataclass
@@ -22,7 +29,7 @@ class AlertContext:
 
 @dataclass
 class AlertEvent:
-    status:  str   # 'fired' | 'cleared' | 'none'
+    status:  AlertStatus
     message: str
 
 
@@ -48,6 +55,10 @@ class Alert(ABC):
     def is_condition_met(self, ctx: AlertContext) -> bool:
         """Return True when the alert condition is currently active."""
 
+    @property
+    @abstractmethod
+    def notification_title(self) -> str: ...
+
     @abstractmethod
     def _fired_message(self) -> str: ...
 
@@ -69,7 +80,8 @@ class Alert(ABC):
                     self._active = True
                     self._enter_timer = 0.0
                     self._exit_timer  = 0.0
-                    return AlertEvent("fired", self._fired_message())
+                    notify(self.notification_title, self._fired_message(), config)
+                    return AlertEvent(AlertStatus.FIRED, self._fired_message())
             else:
                 self._enter_timer = 0.0
         else:
@@ -79,8 +91,8 @@ class Alert(ABC):
                     self._active = False
                     self._enter_timer = 0.0
                     self._exit_timer  = 0.0
-                    return AlertEvent("cleared", self._cleared_message())
+                    return AlertEvent(AlertStatus.CLEARED, self._cleared_message())
             else:
                 self._exit_timer = 0.0
 
-        return AlertEvent("none", "")
+        return AlertEvent(AlertStatus.NONE, "")
