@@ -38,8 +38,10 @@ _STYLE = """
 """
 
 
-def open_settings(db_path: str) -> None:
-    """Open the settings dialog. Blocks until closed."""
+def open_settings(db_path: str, quit_key: str = "q") -> None:
+    """Open the settings dialog. Blocks until closed.
+    quit_key: pressing this key closes the dialog so the engine can quit.
+    """
     app = QApplication.instance() or QApplication(sys.argv)
 
     # Group DEFAULTS by category
@@ -52,8 +54,9 @@ def open_settings(db_path: str) -> None:
         if c not in ordered_cats:
             ordered_cats.append(c)
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
 
     # Pre-load all current DB values into pending
     pending: dict[str, str] = {}
@@ -67,6 +70,13 @@ def open_settings(db_path: str) -> None:
     dlg.setWindowTitle("FaceWatch — Settings")
     dlg.setMinimumSize(820, 560)
     dlg.setStyleSheet(_STYLE)
+
+    def keyPressEvent(event):
+        if event.text() == quit_key:
+            dlg.reject()
+        else:
+            QDialog.keyPressEvent(dlg, event)
+    dlg.keyPressEvent = keyPressEvent
 
     root = QHBoxLayout(dlg)
     root.setContentsMargins(0, 0, 0, 0)
@@ -123,9 +133,11 @@ def open_settings(db_path: str) -> None:
     def show_category(cat: str) -> None:
         if active_panel[0]:
             active_panel[0].flush()
-            old = panel_layout.takeAt(0)
-            if old and old.widget():
-                old.widget().setParent(None)
+        # Remove and destroy all widgets in the container
+        while panel_layout.count():
+            item = panel_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
         panel = CategoryPanel(categories[cat], pending, cat)
         active_panel[0] = panel
@@ -139,7 +151,6 @@ def open_settings(db_path: str) -> None:
             active_panel[0].flush()
         for key, value in pending.items():
             conn.execute("UPDATE config SET value=? WHERE key=?", (value, key))
-        conn.commit()
         btn_save.setText("Saved ✓")
         QTimer.singleShot(1500, lambda: btn_save.setText("Save"))
 
@@ -150,7 +161,7 @@ def open_settings(db_path: str) -> None:
         for key, default, *_ in categories.get(cat, []):
             pending[key] = str(default)
             conn.execute("UPDATE config SET value=? WHERE key=?", (str(default), key))
-        conn.commit()
+        active_panel[0] = None
         show_category(cat)
 
     sidebar.currentItemChanged.connect(on_category_changed)

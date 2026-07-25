@@ -467,7 +467,7 @@ def run() -> None:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
-                open_settings("facewatch.db")
+                open_settings("facewatch.db", quit_key=config.get("key_quit"))
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))

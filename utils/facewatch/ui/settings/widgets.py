@@ -1,6 +1,9 @@
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIntValidator, QDoubleValidator, QColor
-from PyQt6.QtWidgets import QLineEdit, QPushButton, QCheckBox, QColorDialog
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QLineEdit, QPushButton, QCheckBox, QColorDialog,
+    QSpinBox, QDoubleSpinBox,
+)
 
 # (min, max) bounds for int/float keys
 LIMITS: dict[str, tuple] = {
@@ -54,19 +57,84 @@ def hex_to_bgr(hex_str: str) -> str:
 
 
 class KeyCaptureEdit(QLineEdit):
-    """Read-only line edit that captures the next key press."""
+    """Captures the next key press on click."""
     def __init__(self, value: str):
         super().__init__(value)
         self.setPlaceholderText("Click then press a key…")
-        self.setReadOnly(True)
         self.setFixedWidth(120)
+        self._captured = value
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return, Qt.Key.Key_Tab):
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return,
+                           Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
             super().keyPressEvent(event)
             return
         if event.text():
+            self._captured = event.text()
             self.setText(event.text())
+            self.clearFocus()
+
+    def mousePressEvent(self, event):
+        self.setFocus()
+        self.selectAll()
+
+    def text(self) -> str:
+        return self._captured
+
+
+class TimeListEdit(QLineEdit):
+    """Only allows digits, colons and commas. Format: HH:MM,HH:MM"""
+    def __init__(self, value: str):
+        super().__init__(value)
+        self.setPlaceholderText("HH:MM,HH:MM  e.g. 18:00,21:00")
+        self.setFixedWidth(260)
+
+    def keyPressEvent(self, event):
+        allowed = set("0123456789:,")
+        if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
+                           Qt.Key.Key_Left, Qt.Key.Key_Right,
+                           Qt.Key.Key_Home, Qt.Key.Key_End):
+            super().keyPressEvent(event)
+            return
+        if event.text() and event.text() not in allowed:
+            return
+        super().keyPressEvent(event)
+
+
+def _make_spinbox(current_val: str, lo, hi) -> QSpinBox:
+    w = QSpinBox()
+    w.setStyleSheet(
+        "QSpinBox { background:#222; border:1px solid #333; border-radius:4px;"
+        " color:#f0f0f0; padding:4px 8px; font-size:12px; }"
+        "QSpinBox:focus { border-color:#00dcb4; }"
+    )
+    w.setFixedWidth(160)
+    w.setRange(int(lo) if lo is not None else 0,
+               int(hi) if hi is not None else 999999)
+    try:
+        w.setValue(int(current_val))
+    except ValueError:
+        pass
+    return w
+
+
+def _make_doublespinbox(current_val: str, lo, hi) -> QDoubleSpinBox:
+    w = QDoubleSpinBox()
+    w.setStyleSheet(
+        "QDoubleSpinBox { background:#222; border:1px solid #333; border-radius:4px;"
+        " color:#f0f0f0; padding:4px 8px; font-size:12px; }"
+        "QDoubleSpinBox:focus { border-color:#00dcb4; }"
+    )
+    w.setFixedWidth(160)
+    w.setDecimals(4)
+    w.setRange(float(lo) if lo is not None else 0.0,
+               float(hi) if hi is not None else 999999.0)
+    w.setSingleStep(0.01)
+    try:
+        w.setValue(float(current_val))
+    except ValueError:
+        pass
+    return w
 
 
 class ColorPickerButton(QPushButton):
@@ -91,10 +159,7 @@ class ColorPickerButton(QPushButton):
 
 
 def build_input(key: str, type_: str, current_val: str, category: str, desc: str) -> tuple:
-    """
-    Returns (widget, range_hint: str | None).
-    range_hint is appended to the description label when limits exist.
-    """
+    """Returns (widget, range_hint: str | None)."""
     if type_ == "bool":
         w = QCheckBox()
         w.setChecked(current_val.lower() in ("true", "1", "yes"))
@@ -106,33 +171,21 @@ def build_input(key: str, type_: str, current_val: str, category: str, desc: str
     if category == "keys":
         return KeyCaptureEdit(current_val), None
 
-    w = QLineEdit(current_val)
-    w.setFixedWidth(260)
-
     if key == "report_times":
-        w.setPlaceholderText("HH:MM,HH:MM  e.g. 18:00,21:00")
-        return w, None
+        return TimeListEdit(current_val), None
 
     lo, hi = LIMITS.get(key, (None, None))
-    hint = None
+    hint = f"[{lo} – {hi}]" if lo is not None and hi is not None else None
 
     if type_ == "int":
-        v = QIntValidator()
-        if lo is not None: v.setBottom(int(lo))
-        if hi is not None: v.setTop(int(hi))
-        w.setValidator(v)
-        if lo is not None and hi is not None:
-            hint = f"[{int(lo)} – {int(hi)}]"
-    elif type_ == "float":
-        v = QDoubleValidator()
-        if lo is not None: v.setBottom(float(lo))
-        if hi is not None: v.setTop(float(hi))
-        v.setDecimals(4)
-        w.setValidator(v)
-        if lo is not None and hi is not None:
-            hint = f"[{lo} – {hi}]"
+        return _make_spinbox(current_val, lo, hi), hint
 
-    return w, hint
+    if type_ == "float":
+        return _make_doublespinbox(current_val, lo, hi), hint
+
+    w = QLineEdit(current_val)
+    w.setFixedWidth(260)
+    return w, None
 
 
 def read_widget(key: str, widget, type_: str) -> str:
@@ -140,4 +193,6 @@ def read_widget(key: str, widget, type_: str) -> str:
         return str(widget.isChecked())
     if isinstance(widget, ColorPickerButton):
         return widget.value()
+    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+        return str(widget.value())
     return widget.text()
