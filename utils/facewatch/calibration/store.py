@@ -6,8 +6,8 @@ _DEFAULTS = {
     "focal_length_px": 600.0,
 }
 
-_GAZE_DEFAULT_H = 0.50
-_GAZE_DEFAULT_V = 0.50
+_GAZE_DEFAULT_H = 0.0
+_GAZE_DEFAULT_V = 0.0
 
 
 class CalibrationStore:

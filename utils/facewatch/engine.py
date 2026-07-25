@@ -149,7 +149,7 @@ def run() -> None:
     text_input:      TextInput | None             = None
     pending_action:  MouseAction                  = MouseAction.NONE
     pending_track:   int | None                   = None
-    _test_overlay:   bool                         = False
+    _gaze_pointer_ids: set[int] = set()  # face_ids with pointer enabled
     focal_wizard:    FocalWizard | None           = None
     gaze_wizard:     GazeWizard | None            = None
     cal_input:       TextInput | None             = None
@@ -310,8 +310,19 @@ def run() -> None:
             alert_snap[tid] = alert_manager.active(tid)
             demo_snap[tid]  = demo.get_demographics(ident.face_id) if ident.face_id else None
 
-        overlay.set_active_priorities(alert_manager.active_priorities() if not _test_overlay else {AlertPriority.MEDIUM, AlertPriority.HIGH})
+        overlay.set_active_priorities(alert_manager.active_priorities())
         mouse.update_tracks(tracks, identities_snap)
+
+        # ── Gaze pointers ───────────────────────────────────────────────
+        from analysis.gaze import _TOLERANCE
+        for tid, gs in gaze_states.items():
+            ident   = identities_snap.get(tid)
+            face_id = ident.face_id if ident else None
+            if face_id not in _gaze_pointer_ids:
+                continue
+            center_h, center_v = calibration.get_gaze_center(face_id)
+            cal_overlay.show_gaze(face_id, gs.horizontal_ratio, gs.vertical_ratio,
+                                  center_h, center_v, _TOLERANCE)
 
         frame = renderer.draw(
             frame, tracks, identities_snap, gaze_states,
@@ -352,8 +363,6 @@ def run() -> None:
         cv2.imshow("FaceWatch", frame)
         key    = cv2.waitKey(1) & 0xFF
         action = input_handler.handle(key)
-        if key == ord("t"):
-            action = Action.TEST_OVERLAY
 
         # ── Input handling ───────────────────────────────────────────────────────────────
         if focal_wizard is not None and cal_input and cal_input.active and key not in (0, 255):
@@ -431,6 +440,15 @@ def run() -> None:
                     focal_wizard = FocalWizard(calibration, face_width)
                     cal_input    = TextInput("Distance from camera (cm):")
                     cal_pick_mode = False
+            elif mev.action == MouseAction.TOGGLE_GAZE_POINTER:
+                if mev.track_id is not None:
+                    ident = recognizer.get_identity(mev.track_id)
+                    if ident.face_id:
+                        if ident.face_id in _gaze_pointer_ids:
+                            _gaze_pointer_ids.discard(ident.face_id)
+                            cal_overlay.hide_gaze(ident.face_id)
+                        else:
+                            _gaze_pointer_ids.add(ident.face_id)
             elif mev.action == MouseAction.CALIBRATE_GAZE:
                 if mev.track_id is not None:
                     ident = recognizer.get_identity(mev.track_id)
@@ -447,8 +465,6 @@ def run() -> None:
                 for tid in tracks:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
-            elif action == Action.TEST_OVERLAY:
-                _test_overlay = not _test_overlay
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))

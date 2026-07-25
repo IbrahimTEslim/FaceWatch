@@ -1,11 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import deque
 
-_L_IRIS      = 468
-_R_IRIS      = 473
-_IRIS_TOL    = 0.15   # accept iris within ±0.15 of 0.50
-_STABLE_WIN  = 5      # frames for variance window
-_STABLE_MAX  = 5e-6   # max landmark variance to be considered stable
+from analysis.gaze import (
+    _offset,
+    _L_OUTER, _L_INNER, _L_TOP, _L_BOTTOM, _L_IRIS,
+    _R_OUTER, _R_INNER, _R_TOP, _R_BOTTOM, _R_IRIS,
+)
+
+_STABLE_WIN  = 5
+_STABLE_MAX  = 5e-6
 
 
 @dataclass
@@ -19,7 +22,7 @@ class SampleResult:
 class SampleCollector:
     """
     Evaluates a single landmark frame.
-    Accepts if head is stable AND iris is near screen center.
+    Accepts if head is stable (nose tip variance below threshold).
     """
 
     def __init__(self):
@@ -29,8 +32,14 @@ class SampleCollector:
         if not landmarks or len(landmarks) <= _R_IRIS:
             return SampleResult(accepted=False, iris_h=0.0, iris_v=0.0, variance=1.0)
 
-        iris_h = (landmarks[_L_IRIS].x + landmarks[_R_IRIS].x) / 2.0
-        iris_v = (landmarks[_L_IRIS].y + landmarks[_R_IRIS].y) / 2.0
+        h = (
+            _offset(landmarks[_L_IRIS].x, landmarks[_L_OUTER].x, landmarks[_L_INNER].x)
+            + _offset(landmarks[_R_IRIS].x, landmarks[_R_OUTER].x, landmarks[_R_INNER].x)
+        ) / 2.0
+        v = (
+            _offset(landmarks[_L_IRIS].y, landmarks[_L_TOP].y, landmarks[_L_BOTTOM].y)
+            + _offset(landmarks[_R_IRIS].y, landmarks[_R_TOP].y, landmarks[_R_BOTTOM].y)
+        ) / 2.0
 
         nose = landmarks[1]
         self._window.append((nose.x, nose.y))
@@ -43,8 +52,6 @@ class SampleCollector:
             my = sum(ys) / _STABLE_WIN
             variance = sum((x - mx) ** 2 + (y - my) ** 2 for x, y in self._window) / _STABLE_WIN
 
-        stable      = len(self._window) == _STABLE_WIN and variance < _STABLE_MAX
-        iris_ok     = abs(iris_h - 0.50) < _IRIS_TOL and abs(iris_v - 0.50) < _IRIS_TOL
-        accepted    = stable and iris_ok
+        accepted = len(self._window) == _STABLE_WIN and variance < _STABLE_MAX
 
-        return SampleResult(accepted=accepted, iris_h=iris_h, iris_v=iris_v, variance=variance)
+        return SampleResult(accepted=accepted, iris_h=h, iris_v=v, variance=variance)

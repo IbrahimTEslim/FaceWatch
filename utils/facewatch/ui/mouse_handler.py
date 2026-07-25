@@ -18,13 +18,14 @@ _DBL_SEC  = 0.4   # double-click window
 
 class MouseAction(Enum):
     NONE               = auto()
-    REGISTER           = auto()   # single click unknown
-    RENAME             = auto()   # double click known
-    REASSIGN           = auto()   # context menu → reassign
-    DELETE             = auto()   # context menu → delete
-    REIDENTIFY         = auto()   # context menu → force re-identify
-    CALIBRATE_DISTANCE = auto()   # context menu → calibrate focal length
-    CALIBRATE_GAZE     = auto()   # context menu → calibrate gaze center (known only)
+    REGISTER           = auto()
+    RENAME             = auto()
+    REASSIGN           = auto()
+    DELETE             = auto()
+    REIDENTIFY         = auto()
+    CALIBRATE_DISTANCE = auto()
+    CALIBRATE_GAZE     = auto()
+    TOGGLE_GAZE_POINTER = auto()  # context menu → show/hide gaze dot on screen
 
 
 @dataclass
@@ -34,6 +35,7 @@ class MouseEvent:
 
 
 _MENU_ITEMS_KNOWN: list[tuple[str, MouseAction]] = [
+    ("Gaze pointer",      MouseAction.TOGGLE_GAZE_POINTER),
     ("Calibrate gaze",    MouseAction.CALIBRATE_GAZE),
     ("Calibrate distance",MouseAction.CALIBRATE_DISTANCE),
     ("Force re-identify", MouseAction.REIDENTIFY),

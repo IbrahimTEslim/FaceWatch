@@ -35,6 +35,10 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
         "instruction": "Look straight at the center of your screen and hold still.",
         "accepted":    False,
     }
+    gaze_targets:  dict = {}   # face_id -> {x, y}
+    gaze_current:  dict = {}   # face_id -> [x, y]  (smoothed)
+
+    _SMOOTH = 0.12  # lerp factor per frame (~30fps)
 
     class Window(QWidget):
         def __init__(self):
@@ -51,14 +55,16 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
             self.show()
 
         def paintEvent(self, _):
-            if not visible:
-                return
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            self._draw_background(painter)
-            self._draw_crosshair(painter)
-            self._draw_progress(painter)
-            self._draw_instruction(painter)
+            if visible:
+                self._draw_background(painter)
+                self._draw_crosshair(painter)
+                self._draw_progress(painter)
+                self._draw_instruction(painter)
+            for fid, pos in list(gaze_current.items()):
+                if fid in gaze_targets:
+                    self._draw_gaze_pointer(painter, int(pos[0]), int(pos[1]))
             painter.end()
 
         def _draw_background(self, painter: QPainter):
@@ -120,6 +126,12 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
                 state.get("instruction", ""),
             )
 
+        def _draw_gaze_pointer(self, painter: QPainter, gx: int, gy: int):
+            painter.setBrush(QBrush(QColor(255, 80, 80, 200)))
+            painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
+            painter.drawEllipse(gx - _DOT_RADIUS, gy - _DOT_RADIUS,
+                                _DOT_RADIUS * 2, _DOT_RADIUS * 2)
+
     win = Window()
 
     def tick():
@@ -129,9 +141,25 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
             if msg is None:
                 app.quit()
                 return
-            visible = msg.get("visible", False)
-            if "samples" in msg:
-                state = msg
+            if msg.get("type") == "gaze":
+                fid = msg["face_id"]
+                if msg["visible"]:
+                    tx, ty = msg["x"], msg["y"]
+                    gaze_targets[fid] = {"x": tx, "y": ty}
+                    if fid not in gaze_current:
+                        gaze_current[fid] = [float(tx), float(ty)]
+                else:
+                    gaze_targets.pop(fid, None)
+                    gaze_current.pop(fid, None)
+            else:
+                visible = msg.get("visible", False)
+                if "samples" in msg:
+                    state = msg
+        # Smooth all active pointers
+        for fid, target in list(gaze_targets.items()):
+            cur = gaze_current[fid]
+            cur[0] += (target["x"] - cur[0]) * _SMOOTH
+            cur[1] += (target["y"] - cur[1]) * _SMOOTH
         win.update()
 
     timer = QTimer()
@@ -149,6 +177,11 @@ class CalibrationOverlay:
             bar_bg           = (60,  60,  60),
             bar_fill         = (0,   220, 180),
         )
+        import tkinter
+        root = tkinter.Tk()
+        self._sw = root.winfo_screenwidth()
+        self._sh = root.winfo_screenheight()
+        root.destroy()
         self._parent_conn, self._child_conn = multiprocessing.Pipe()
         self._process: multiprocessing.Process | None = None
 
@@ -186,5 +219,28 @@ class CalibrationOverlay:
             return
         try:
             self._parent_conn.send({"visible": False})
+        except Exception:
+            pass
+
+    def show_gaze(self, face_id: int, h: float, v: float,
+                  center_h: float, center_v: float, tolerance: float) -> None:
+        if not (self._process and self._process.is_alive()):
+            return
+        try:
+            x = int(self._sw * (h - (center_h - tolerance)) / (2 * tolerance))
+            y = int(self._sh * (v - (center_v - tolerance)) / (2 * tolerance))
+            x = max(0, min(self._sw, x))
+            y = max(0, min(self._sh, y))
+            self._parent_conn.send({"type": "gaze", "face_id": face_id,
+                                    "visible": True, "x": x, "y": y})
+        except Exception:
+            pass
+
+    def hide_gaze(self, face_id: int) -> None:
+        if not (self._process and self._process.is_alive()):
+            return
+        try:
+            self._parent_conn.send({"type": "gaze", "face_id": face_id,
+                                    "visible": False, "x": 0, "y": 0})
         except Exception:
             pass
