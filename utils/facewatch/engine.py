@@ -36,7 +36,7 @@ from ui.text_input import TextInput
 from ui.mouse_handler import MouseHandler, MouseAction
 from ui.alert_overlay import AlertOverlay
 from ui.calibration_overlay import CalibrationOverlay
-from ui.settings_window import open_settings
+from ui.settings import open_settings
 
 from storage.db.connection import now_utc
 
