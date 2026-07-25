@@ -4,7 +4,7 @@ import threading
 
 import numpy as np
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def now_utc() -> str:
@@ -79,12 +79,20 @@ class Connection:
                 value         REAL NOT NULL,
                 calibrated_at TEXT NOT NULL
             )""",
+            """CREATE TABLE IF NOT EXISTS face_gaze_calibration (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                face_id       INTEGER NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+                center_h      REAL NOT NULL,
+                center_v      REAL NOT NULL,
+                calibrated_at TEXT NOT NULL
+            )""",
             """CREATE TABLE IF NOT EXISTS audit_log (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp  TEXT NOT NULL,
                 event_type TEXT NOT NULL,
                 details    TEXT
             )""",
+            "CREATE INDEX IF NOT EXISTS idx_gaze_cal_face_id ON face_gaze_calibration(face_id)",
             "CREATE INDEX IF NOT EXISTS idx_stats_face_id   ON stats(face_id)",
             "CREATE INDEX IF NOT EXISTS idx_stats_timestamp ON stats(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_stats_app       ON stats(active_app)",
@@ -107,6 +115,22 @@ class Connection:
                     self.conn.execute(
                         "UPDATE faces SET display_name=name WHERE display_name=''"
                     )
+                self.conn.execute("PRAGMA user_version = 2")
+                self.conn.commit()
+        if version < 3:
+            with self.lock:
+                self.conn.execute(
+                    """CREATE TABLE IF NOT EXISTS face_gaze_calibration (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        face_id       INTEGER NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+                        center_h      REAL NOT NULL,
+                        center_v      REAL NOT NULL,
+                        calibrated_at TEXT NOT NULL
+                    )"""
+                )
+                self.conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_gaze_cal_face_id ON face_gaze_calibration(face_id)"
+                )
                 self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 self.conn.commit()
 

@@ -72,7 +72,8 @@ class GazeTracker:
         self._alert_active:     bool  = False
 
     def update(self, landmarks: list, dt: float, config: ConfigStore,
-               calibration: CalibrationStore | None = None) -> GazeState:
+               calibration: CalibrationStore | None = None,
+               face_id: int | None = None) -> GazeState:
         if not landmarks:
             # Face not present — pause all timers, return unknown state
             return GazeState(
@@ -84,8 +85,10 @@ class GazeTracker:
         alert_sec:  float = config.get("gaze_alert_sec")
         return_sec: float = config.get("gaze_return_sec")
 
-        center_h = calibration.get("gaze_center_h") if calibration else 0.50
-        center_v = calibration.get("gaze_center_v") if calibration else 0.50
+        if calibration and face_id is not None:
+            center_h, center_v = calibration.get_gaze_center(face_id)
+        else:
+            center_h, center_v = 0.50, 0.50
 
         lm = landmarks
         h = (
