@@ -137,8 +137,10 @@ def run() -> None:
     renderer      = Renderer(config)
     input_handler = InputHandler(config)
     mouse         = MouseHandler()
-    overlay       = AlertOverlay(config)
+    overlay     = AlertOverlay(config)
     overlay.start()
+    cal_overlay = CalibrationOverlay()
+    cal_overlay.start()
 
     # Per-track state
     expressions_map: dict[int, list[Expression]] = {}
@@ -150,9 +152,8 @@ def run() -> None:
     _test_overlay:   bool                         = False
     focal_wizard:    FocalWizard | None           = None
     gaze_wizard:     GazeWizard | None            = None
-    cal_overlay:     CalibrationOverlay | None    = None
     cal_input:       TextInput | None             = None
-    cal_pick_mode:   bool                         = False  # waiting for face click to start focal
+    cal_pick_mode:   bool                         = False
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -339,15 +340,13 @@ def run() -> None:
             cal_lms = _landmarks_list(result, next(iter(mp_map.values()), -1)) if mp_map else []
             if cal_lms:
                 wiz_state = gaze_wizard.feed(cal_lms)
-                if cal_overlay:
-                    cal_overlay.send(
-                        wiz_state.samples, wiz_state.needed,
-                        wiz_state.instruction, wiz_state.accepted,
-                    )
+                cal_overlay.show(
+                    wiz_state.samples, wiz_state.needed,
+                    wiz_state.instruction, wiz_state.accepted,
+                )
                 if wiz_state.done:
-                    cal_overlay.stop()
+                    cal_overlay.hide()
                     gaze_wizard = None
-                    cal_overlay = None
 
         # ── Display ─────────────────────────────────────────────────────────────────
         cv2.imshow("FaceWatch", frame)
@@ -437,8 +436,6 @@ def run() -> None:
                     ident = recognizer.get_identity(mev.track_id)
                     if ident.face_id:
                         gaze_wizard = GazeWizard(calibration, ident.face_id)
-                        cal_overlay = CalibrationOverlay()
-                        cal_overlay.start()
 
             if action == Action.QUIT:
                 break
@@ -465,6 +462,7 @@ def run() -> None:
     cap.release()
     cv2.destroyAllWindows()
     overlay.stop()
+    cal_overlay.stop()
     db.log_audit("session_end", {"reason": "user_quit"})
     db.close()
 

@@ -28,8 +28,13 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
     cx     = screen.width()  // 2
     cy     = screen.height() // 2
 
-    # state as plain dict: {samples, needed, instruction, accepted, done}
-    state: dict | None = None
+    visible = False
+    state: dict = {
+        "samples":     0,
+        "needed":      30,
+        "instruction": "Look straight at the center of your screen and hold still.",
+        "accepted":    False,
+    }
 
     class Window(QWidget):
         def __init__(self):
@@ -38,27 +43,43 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
             self.setWindowFlags(
                 Qt.WindowType.FramelessWindowHint |
                 Qt.WindowType.WindowStaysOnTopHint |
-                Qt.WindowType.Tool
+                Qt.WindowType.Tool |
+                Qt.WindowType.WindowTransparentForInput
             )
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             self.show()
-            self.raise_()
-            self.activateWindow()
 
         def paintEvent(self, _):
-            if state is None:
+            if not visible:
                 return
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            self._draw_background(painter)
             self._draw_crosshair(painter)
             self._draw_progress(painter)
             self._draw_instruction(painter)
             painter.end()
 
+        def _draw_background(self, painter: QPainter):
+            pw, ph = 500, 220
+            px = cx - pw // 2
+            py = cy - 80
+            painter.setBrush(QBrush(QColor(10, 10, 10, 180)))
+            painter.setPen(QPen(QColor(0, 220, 180, 180), 1))
+            painter.drawRoundedRect(px, py, pw, ph, 12, 12)
+            font = QFont("Arial", 14)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor(0, 220, 180, 230))
+            painter.drawText(
+                QRect(px, py + 16, pw, 30),
+                Qt.AlignmentFlag.AlignCenter,
+                "GAZE CALIBRATION",
+            )
+
         def _draw_crosshair(self, painter: QPainter):
-            active = state and state.get("accepted", False)
-            color  = colors.crosshair_active if active else colors.crosshair_idle
+            color = colors.crosshair_active if state.get("accepted") else colors.crosshair_idle
             c = QColor(*color, 200)
             painter.setPen(QPen(c, 2))
             painter.drawLine(cx - _CROSSHAIR_SIZE, cy, cx + _CROSSHAIR_SIZE, cy)
@@ -69,8 +90,6 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
                                 _DOT_RADIUS * 2, _DOT_RADIUS * 2)
 
         def _draw_progress(self, painter: QPainter):
-            if not state or state.get("needed", 0) == 0:
-                return
             samples = state.get("samples", 0)
             needed  = state.get("needed", 1)
             bx = cx - _BAR_W // 2
@@ -92,8 +111,6 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
             )
 
         def _draw_instruction(self, painter: QPainter):
-            if not state:
-                return
             font = QFont("Arial", 13)
             painter.setFont(font)
             painter.setPen(QColor(*colors.text, 220))
@@ -106,18 +123,20 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
     win = Window()
 
     def tick():
-        nonlocal state
+        nonlocal visible, state
         while conn.poll():
             msg = conn.recv()
             if msg is None:
                 app.quit()
                 return
-            state = msg
+            visible = msg.get("visible", False)
+            if "samples" in msg:
+                state = msg
         win.update()
 
     timer = QTimer()
     timer.timeout.connect(tick)
-    timer.start(33)
+    timer.start(1000 // 30)
     app.exec()
 
 
@@ -145,22 +164,27 @@ class CalibrationOverlay:
 
     def stop(self) -> None:
         if self._process and self._process.is_alive():
-            try:
-                self._parent_conn.send(None)
-            except Exception:
-                pass
+            self._process.terminate()
             self._process.join(timeout=2)
-        self._process = None
 
-    def send(self, samples: int, needed: int, instruction: str, accepted: bool) -> None:
+    def show(self, samples: int, needed: int, instruction: str, accepted: bool) -> None:
         if not (self._process and self._process.is_alive()):
             return
         try:
             self._parent_conn.send({
+                "visible":     True,
                 "samples":     samples,
                 "needed":      needed,
                 "instruction": instruction,
                 "accepted":    accepted,
             })
+        except Exception:
+            pass
+
+    def hide(self) -> None:
+        if not (self._process and self._process.is_alive()):
+            return
+        try:
+            self._parent_conn.send({"visible": False})
         except Exception:
             pass
