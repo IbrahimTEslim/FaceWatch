@@ -10,6 +10,7 @@ class Action(Enum):
     TOGGLE_DEBUG     = auto()
     FORCE_STATS      = auto()
     FORCE_REIDENTIFY = auto()
+    OPEN_SETTINGS    = auto()
 
 
 _KEY_MAP = {
@@ -19,6 +20,7 @@ _KEY_MAP = {
     "key_debug":            Action.TOGGLE_DEBUG,
     "key_force_stats":      Action.FORCE_STATS,
     "key_force_reidentify": Action.FORCE_REIDENTIFY,
+    "key_settings":         Action.OPEN_SETTINGS,
 }
 
 
