@@ -28,12 +28,14 @@ from demographics.analyzer import DemographicsAnalyzer
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
 from calibration.store import CalibrationStore
+from calibration.wizard import FocalWizard, GazeWizard, WizardState
 
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler, Action
 from ui.text_input import TextInput
 from ui.mouse_handler import MouseHandler, MouseAction
 from ui.alert_overlay import AlertOverlay
+from ui.calibration_overlay import CalibrationOverlay
 
 from storage.db.connection import now_utc
 
@@ -135,8 +137,10 @@ def run() -> None:
     renderer      = Renderer(config)
     input_handler = InputHandler(config)
     mouse         = MouseHandler()
-    overlay       = AlertOverlay(config)
+    overlay     = AlertOverlay(config)
     overlay.start()
+    cal_overlay = CalibrationOverlay()
+    cal_overlay.start()
 
     # Per-track state
     expressions_map: dict[int, list[Expression]] = {}
@@ -145,7 +149,11 @@ def run() -> None:
     text_input:      TextInput | None             = None
     pending_action:  MouseAction                  = MouseAction.NONE
     pending_track:   int | None                   = None
-    _test_overlay:   bool                         = False
+    _gaze_pointer_ids: set[int] = set()  # face_ids with pointer enabled
+    focal_wizard:    FocalWizard | None           = None
+    gaze_wizard:     GazeWizard | None            = None
+    cal_input:       TextInput | None             = None
+    cal_pick_mode:   bool                         = False
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -216,7 +224,7 @@ def run() -> None:
             for expr in expressions_map[track_id]:
                 expr.update(blendshapes, landmarks, config)
 
-            gaze_state = gaze_map[track_id].update(landmarks, dt, config, calibration)
+            gaze_state = gaze_map[track_id].update(landmarks, dt, config, calibration, identity.face_id)
             gaze_states[track_id] = gaze_state
 
             face_width = demo.get_face_width(identity.face_id) if identity.face_id else DEFAULT_FACE_WIDTH_CM
@@ -245,7 +253,7 @@ def run() -> None:
                 face_width = demo.get_face_width(identity.face_id)
                 lms        = _landmarks_list(result, mp_map.get(track_id, -1))
                 dist_cm    = distance.estimate(lms, face_width, calibration.get("focal_length_px"), frame_w)
-                gaze_state = gaze_map[track_id].update([], 0.0, config, calibration)
+                gaze_state = gaze_map[track_id].update([], 0.0, config, calibration, identity.face_id)
 
                 expr_stats = {e.name: e.get_interval_stats() for e in exprs}
                 total_f    = expr_stats.get("blink_left", {}).get("total_frames", 1) or 1
@@ -302,13 +310,24 @@ def run() -> None:
             alert_snap[tid] = alert_manager.active(tid)
             demo_snap[tid]  = demo.get_demographics(ident.face_id) if ident.face_id else None
 
-        overlay.set_active_priorities(alert_manager.active_priorities() if not _test_overlay else {AlertPriority.MEDIUM, AlertPriority.HIGH})
+        overlay.set_active_priorities(alert_manager.active_priorities())
         mouse.update_tracks(tracks, identities_snap)
+
+        # ── Gaze pointers ───────────────────────────────────────────────
+        from analysis.gaze import _TOLERANCE
+        for tid, gs in gaze_states.items():
+            ident   = identities_snap.get(tid)
+            face_id = ident.face_id if ident else None
+            if face_id not in _gaze_pointer_ids:
+                continue
+            center_h, center_v = calibration.get_gaze_center(face_id)
+            cal_overlay.show_gaze(face_id, gs.horizontal_ratio, gs.vertical_ratio,
+                                  center_h, center_v, _TOLERANCE)
 
         frame = renderer.draw(
             frame, tracks, identities_snap, gaze_states,
             expressions_map, distances_snap, focus_snap, alert_snap,
-            demo_snap,
+            demo_snap, calibration,
         )
         mouse.draw_menu(frame)
 
@@ -316,18 +335,52 @@ def run() -> None:
         if text_input and text_input.active:
             text_input.draw(frame)
 
-        # ── Display + input ───────────────────────────────────────────────────
+        # ── Calibration wizard draw ────────────────────────────────────────────────
+        if focal_wizard is not None:
+            cal_lms   = _landmarks_list(result, next(iter(mp_map.values()), -1)) if mp_map else []
+            wiz_state = focal_wizard.feed(cal_lms, frame_w)
+            inp_text  = cal_input.value if cal_input else ""
+            renderer.draw_calibration_step1(frame, wiz_state, inp_text)
+            if cal_input and cal_input.active:
+                cal_input.draw(frame)
+            if wiz_state.done:
+                focal_wizard = None
+                cal_input    = None
+
+        if gaze_wizard is not None:
+            cal_lms = _landmarks_list(result, next(iter(mp_map.values()), -1)) if mp_map else []
+            if cal_lms:
+                wiz_state = gaze_wizard.feed(cal_lms)
+                cal_overlay.show(
+                    wiz_state.samples, wiz_state.needed,
+                    wiz_state.instruction, wiz_state.accepted,
+                )
+                if wiz_state.done:
+                    cal_overlay.hide()
+                    gaze_wizard = None
+
+        # ── Display ─────────────────────────────────────────────────────────────────
         cv2.imshow("FaceWatch", frame)
         key    = cv2.waitKey(1) & 0xFF
         action = input_handler.handle(key)
-        if key == ord("t"):
-            action = Action.TEST_OVERLAY
 
-        # Feed key to text input if active
-        if text_input and text_input.active:
+        # ── Input handling ───────────────────────────────────────────────────────────────
+        if focal_wizard is not None and cal_input and cal_input.active and key not in (0, 255):
+            cal_input.feed(key)
+            if cal_input.confirmed:
+                try:
+                    focal_wizard.set_distance_cm(float(cal_input.value))
+                except ValueError:
+                    cal_input.set_error("Enter a number.")
+                else:
+                    cal_input = None
+            elif cal_input.cancelled:
+                focal_wizard = None
+                cal_input    = None
+        elif text_input and text_input.active:
             text_input.feed(key)
             if text_input.confirmed:
-                name = text_input.normalized
+                name    = text_input.normalized
                 display = text_input.value
                 existing = db.get_face_by_name(name)
                 if existing and pending_action in (MouseAction.REGISTER, MouseAction.RENAME):
@@ -348,18 +401,17 @@ def run() -> None:
                         else:
                             text_input.set_error(f"No known face named '{display}'.")
                     if text_input.confirmed:
-                        text_input      = None
-                        pending_action  = MouseAction.NONE
-                        pending_track   = None
+                        text_input     = None
+                        pending_action = MouseAction.NONE
+                        pending_track  = None
             elif text_input.cancelled:
                 text_input     = None
                 pending_action = MouseAction.NONE
                 pending_track  = None
         else:
-            # Handle mouse events
             mev = mouse.get_event()
             if mev.action == MouseAction.REGISTER:
-                known_names = [f["display_name"] for f in db.get_all_known_faces()]
+                known_names    = [f["display_name"] for f in db.get_all_known_faces()]
                 text_input     = TextInput("Register face — enter name:", known_names)
                 pending_action = MouseAction.REGISTER
                 pending_track  = mev.track_id
@@ -368,7 +420,7 @@ def run() -> None:
                 pending_action = MouseAction.RENAME
                 pending_track  = mev.track_id
             elif mev.action == MouseAction.REASSIGN:
-                known_names = [f["display_name"] for f in db.get_all_known_faces()]
+                known_names    = [f["display_name"] for f in db.get_all_known_faces()]
                 text_input     = TextInput("Reassign to known face:", known_names)
                 pending_action = MouseAction.REASSIGN
                 pending_track  = mev.track_id
@@ -381,8 +433,28 @@ def run() -> None:
             elif mev.action == MouseAction.REIDENTIFY:
                 if mev.track_id is not None:
                     recognizer.force_reidentify(mev.track_id)
+            elif mev.action == MouseAction.CALIBRATE_DISTANCE:
+                if mev.track_id is not None:
+                    ident        = recognizer.get_identity(mev.track_id)
+                    face_width   = demo.get_face_width(ident.face_id) if ident.face_id else DEFAULT_FACE_WIDTH_CM
+                    focal_wizard = FocalWizard(calibration, face_width)
+                    cal_input    = TextInput("Distance from camera (cm):")
+                    cal_pick_mode = False
+            elif mev.action == MouseAction.TOGGLE_GAZE_POINTER:
+                if mev.track_id is not None:
+                    ident = recognizer.get_identity(mev.track_id)
+                    if ident.face_id:
+                        if ident.face_id in _gaze_pointer_ids:
+                            _gaze_pointer_ids.discard(ident.face_id)
+                            cal_overlay.hide_gaze(ident.face_id)
+                        else:
+                            _gaze_pointer_ids.add(ident.face_id)
+            elif mev.action == MouseAction.CALIBRATE_GAZE:
+                if mev.track_id is not None:
+                    ident = recognizer.get_identity(mev.track_id)
+                    if ident.face_id:
+                        gaze_wizard = GazeWizard(calibration, ident.face_id)
 
-            # Handle keyboard actions
             if action == Action.QUIT:
                 break
             elif action == Action.TOGGLE_DEBUG:
@@ -393,14 +465,20 @@ def run() -> None:
                 for tid in tracks:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
-            elif action == Action.TEST_OVERLAY:
-                _test_overlay = not _test_overlay
             elif action == Action.CALIBRATE:
-                pass  # TODO: launch calibration wizard flow
+                if len(tracks) == 1:
+                    tid          = next(iter(tracks))
+                    ident        = recognizer.get_identity(tid)
+                    face_width   = demo.get_face_width(ident.face_id) if ident.face_id else DEFAULT_FACE_WIDTH_CM
+                    focal_wizard = FocalWizard(calibration, face_width)
+                    cal_input    = TextInput("Distance from camera (cm):")
+                else:
+                    cal_pick_mode = True
 
     cap.release()
     cv2.destroyAllWindows()
     overlay.stop()
+    cal_overlay.stop()
     db.log_audit("session_end", {"reason": "user_quit"})
     db.close()
 

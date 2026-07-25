@@ -5,6 +5,8 @@ from core.recognizer import Identity
 from analysis.gaze import GazeState
 from analysis.expressions.base import Expression
 from storage.config_store import ConfigStore
+from calibration.wizard import WizardState
+from calibration.store import CalibrationStore
 
 # Colors (BGR)
 _GREEN   = (0, 220, 0)
@@ -31,6 +33,8 @@ _CARD_W    = 260
 _CARD_H    = 520
 _CARD_PAD  = 12
 _WIN_NAME  = "FaceWatch Debug"
+_PANEL_W   = 420
+_PANEL_H   = 130
 
 
 def _put(img: np.ndarray, text: str, x: int, y: int,
@@ -60,6 +64,25 @@ class Renderer:
         if status == "identifying":  return self._color_identifying
         return self._color_unknown
 
+    def draw_calibration_step1(self, frame: np.ndarray, state: WizardState, input_text: str) -> np.ndarray:
+        h, w = frame.shape[:2]
+        x = (w - _PANEL_W) // 2
+        y = (h - _PANEL_H) // 2
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x, y), (x + _PANEL_W, y + _PANEL_H), _CARD_BG, -1)
+        cv2.rectangle(overlay, (x, y), (x + _PANEL_W, y + _PANEL_H), _ACCENT, 1)
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+        p  = x + _CARD_PAD
+        ty = y + 28
+        ty = _put(frame, "CALIBRATION  Focal Length", p, ty, _ACCENT, _FONT_SM)
+        ty = _put(frame, state.instruction, p, ty, _WHITE, _FONT_XS)
+        if not state.done:
+            bar_w = _PANEL_W - _CARD_PAD * 2
+            _bar(frame, p, ty + 2, bar_w, state.samples / max(state.needed, 1), _ACCENT)
+            cursor = f"> {input_text}_"
+            _put(frame, cursor, p, ty + 18, _GREEN, _FONT_SM)
+        return frame
+
     def toggle_debug(self) -> None:
         self._debug = not self._debug
         if not self._debug:
@@ -79,6 +102,7 @@ class Renderer:
         focus_scores: dict[int, float],
         alert_active: dict[int, bool],
         demographics: dict[int, dict | None] | None = None,
+        calibration: CalibrationStore | None = None,
     ) -> np.ndarray:
         for track_id, bbox in tracks.items():
             identity = identities.get(track_id, Identity())
@@ -102,7 +126,7 @@ class Renderer:
         if self._debug:
             self._draw_debug_window(
                 tracks, identities, gaze_states, expressions,
-                distances, focus_scores, demographics or {},
+                distances, focus_scores, demographics or {}, calibration,
             )
 
         return frame
@@ -118,6 +142,7 @@ class Renderer:
         distances: dict[int, float],
         focus_scores: dict[int, float],
         demographics: dict[int, dict | None],
+        calibration: CalibrationStore | None = None,
     ) -> None:
         cols     = 3
         n        = len(tracks)
@@ -135,7 +160,7 @@ class Renderer:
             cy  = _CARD_PAD + row * (card_h + _CARD_PAD)
             self._draw_card(canvas, cx, cy, track_id,
                             identities, gaze_states, expressions,
-                            distances, focus_scores, demographics)
+                            distances, focus_scores, demographics, calibration)
 
         cv2.imshow(_WIN_NAME, canvas)
 
@@ -150,6 +175,7 @@ class Renderer:
         distances: dict[int, float],
         focus_scores: dict[int, float],
         demographics: dict[int, dict | None],
+        calibration: CalibrationStore | None = None,
     ) -> None:
         ch = _CARD_H - _CARD_PAD * 2
         # Card background
@@ -189,6 +215,14 @@ class Renderer:
         if gaze:
             gaze_color = _GREEN if gaze.on_screen else _RED
             y = _put(canvas, f"Gaze   {gaze.direction}  ({gaze.off_screen_sec:.1f}s off)", p, y, gaze_color, _FONT_SM)
+
+        if calibration and identity.face_id:
+            cal_at = calibration.is_gaze_calibrated(identity.face_id)
+            if cal_at:
+                date = cal_at[:10]
+                y = _put(canvas, f"Gaze cal  \u2713 {date}", p, y, _GREEN, _FONT_XS)
+            else:
+                y = _put(canvas, "Gaze cal  default", p, y, _GRAY, _FONT_XS)
 
         cv2.line(canvas, (cx + 6, y), (cx + _CARD_W - 6, y), _SEP, 1)
         y += 8

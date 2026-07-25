@@ -21,3 +21,21 @@ class CalibrationQueries:
             "SELECT value FROM calibration WHERE key=?", (key,)
         ).fetchone()
         return row["value"] if row else None
+
+    def insert_face_gaze(self, face_id: int, center_h: float, center_v: float) -> None:
+        with self._cx.lock:
+            self._cx.conn.execute(
+                """INSERT INTO face_gaze_calibration (face_id, center_h, center_v, calibrated_at)
+                   VALUES (?, ?, ?, ?)""",
+                (face_id, center_h, center_v, now_utc()),
+            )
+            self._cx.conn.commit()
+
+    def get_face_gaze(self, face_id: int) -> dict | None:
+        row = self._cx.conn.execute(
+            """SELECT center_h, center_v, calibrated_at
+               FROM face_gaze_calibration WHERE face_id=?
+               ORDER BY calibrated_at DESC LIMIT 1""",
+            (face_id,),
+        ).fetchone()
+        return dict(row) if row else None

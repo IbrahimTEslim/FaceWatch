@@ -17,12 +17,15 @@ _DBL_SEC  = 0.4   # double-click window
 
 
 class MouseAction(Enum):
-    NONE        = auto()
-    REGISTER    = auto()   # single click unknown
-    RENAME      = auto()   # double click known
-    REASSIGN    = auto()   # context menu → reassign
-    DELETE      = auto()   # context menu → delete
-    REIDENTIFY  = auto()   # context menu → force re-identify
+    NONE               = auto()
+    REGISTER           = auto()
+    RENAME             = auto()
+    REASSIGN           = auto()
+    DELETE             = auto()
+    REIDENTIFY         = auto()
+    CALIBRATE_DISTANCE = auto()
+    CALIBRATE_GAZE     = auto()
+    TOGGLE_GAZE_POINTER = auto()  # context menu → show/hide gaze dot on screen
 
 
 @dataclass
@@ -31,7 +34,17 @@ class MouseEvent:
     track_id: int | None  = None
 
 
-_MENU_ITEMS: list[tuple[str, MouseAction]] = [
+_MENU_ITEMS_KNOWN: list[tuple[str, MouseAction]] = [
+    ("Gaze pointer",      MouseAction.TOGGLE_GAZE_POINTER),
+    ("Calibrate gaze",    MouseAction.CALIBRATE_GAZE),
+    ("Calibrate distance",MouseAction.CALIBRATE_DISTANCE),
+    ("Force re-identify", MouseAction.REIDENTIFY),
+    ("Reassign to...",    MouseAction.REASSIGN),
+    ("Delete face",       MouseAction.DELETE),
+]
+
+_MENU_ITEMS_UNKNOWN: list[tuple[str, MouseAction]] = [
+    ("Calibrate distance",MouseAction.CALIBRATE_DISTANCE),
     ("Force re-identify", MouseAction.REIDENTIFY),
     ("Reassign to...",    MouseAction.REASSIGN),
     ("Delete face",       MouseAction.DELETE),
@@ -77,10 +90,11 @@ class MouseHandler:
         if not self._menu_open:
             return
 
+        items   = self._menu_items()
         item_h  = 34
         pad     = 14
         w       = 200
-        h       = len(_MENU_ITEMS) * item_h + pad
+        h       = len(items) * item_h + pad
         mx, my  = self._menu_pos
 
         # Clamp to frame
@@ -93,7 +107,7 @@ class MouseHandler:
         cv2.addWeighted(overlay, _ALPHA, frame, 1 - _ALPHA, 0, frame)
         cv2.rectangle(frame, (mx - 1, my - 1), (mx + w + 1, my + h + 1), _BORDER, 1)
 
-        for i, (label, _) in enumerate(_MENU_ITEMS):
+        for i, (label, _) in enumerate(items):
             iy1 = my + pad // 2 + i * item_h
             iy2 = iy1 + item_h
             if i == self._hovered_item:
@@ -108,6 +122,12 @@ class MouseHandler:
         self._menu_track   = None
 
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _menu_items(self) -> list:
+        identity = self._identities.get(self._menu_track)
+        if identity and identity.status == "known":
+            return _MENU_ITEMS_KNOWN
+        return _MENU_ITEMS_UNKNOWN
 
     def _hit_track(self, x: int, y: int) -> int | None:
         for tid, bbox in self._tracks.items():
@@ -148,7 +168,7 @@ class MouseHandler:
         pad    = 14
         w      = 200
         mx, my = self._menu_pos
-        for i in range(len(_MENU_ITEMS)):
+        for i in range(len(self._menu_items())):
             iy1 = my + pad // 2 + i * item_h
             iy2 = iy1 + item_h
             if mx <= x <= mx + w and iy1 <= y <= iy2:
@@ -158,6 +178,6 @@ class MouseHandler:
     def _on_menu_click(self, x: int, y: int) -> None:
         idx = self._menu_hit(x, y)
         if idx >= 0:
-            _, action = _MENU_ITEMS[idx]
+            _, action = self._menu_items()[idx]
             self._event = MouseEvent(action, self._menu_track)
         self.close_menu()

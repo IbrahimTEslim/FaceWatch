@@ -48,9 +48,14 @@ class GazeState:
     alert_active:      bool  = False
 
 
-def _ratio(iris: float, near: float, far: float) -> float:
-    span = far - near
-    return (iris - near) / span if abs(span) > 1e-6 else 0.5
+def _offset(iris: float, near: float, far: float) -> float:
+    """Iris deviation from eye center, normalized by half eye width.
+    0.0 = centered, negative = toward near side, positive = toward far side.
+    Head rotation moves iris and eye corners together, so offset stays stable.
+    """
+    half = abs(far - near) / 2.0
+    center = (near + far) / 2.0
+    return (iris - center) / half if half > 1e-6 else 0.0
 
 
 def _direction(h: float, v: float, center_h: float, center_v: float) -> str:
@@ -72,7 +77,8 @@ class GazeTracker:
         self._alert_active:     bool  = False
 
     def update(self, landmarks: list, dt: float, config: ConfigStore,
-               calibration: CalibrationStore | None = None) -> GazeState:
+               calibration: CalibrationStore | None = None,
+               face_id: int | None = None) -> GazeState:
         if not landmarks:
             # Face not present — pause all timers, return unknown state
             return GazeState(
@@ -84,17 +90,19 @@ class GazeTracker:
         alert_sec:  float = config.get("gaze_alert_sec")
         return_sec: float = config.get("gaze_return_sec")
 
-        center_h = calibration.get("gaze_center_h") if calibration else 0.50
-        center_v = calibration.get("gaze_center_v") if calibration else 0.50
+        if calibration and face_id is not None:
+            center_h, center_v = calibration.get_gaze_center(face_id)
+        else:
+            center_h, center_v = 0.0, 0.0
 
         lm = landmarks
         h = (
-            _ratio(lm[_L_IRIS].x, lm[_L_OUTER].x, lm[_L_INNER].x)
-            + _ratio(lm[_R_IRIS].x, lm[_R_OUTER].x, lm[_R_INNER].x)
+            _offset(lm[_L_IRIS].x, lm[_L_OUTER].x, lm[_L_INNER].x)
+            + _offset(lm[_R_IRIS].x, lm[_R_OUTER].x, lm[_R_INNER].x)
         ) / 2.0
         v = (
-            _ratio(lm[_L_IRIS].y, lm[_L_TOP].y, lm[_L_BOTTOM].y)
-            + _ratio(lm[_R_IRIS].y, lm[_R_TOP].y, lm[_R_BOTTOM].y)
+            _offset(lm[_L_IRIS].y, lm[_L_TOP].y, lm[_L_BOTTOM].y)
+            + _offset(lm[_R_IRIS].y, lm[_R_TOP].y, lm[_R_BOTTOM].y)
         ) / 2.0
 
         direction = _direction(h, v, center_h, center_v)
