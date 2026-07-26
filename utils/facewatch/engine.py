@@ -36,6 +36,7 @@ from ui.text_input import TextInput
 from ui.mouse_handler import MouseHandler, MouseAction
 from ui.alert_overlay import AlertOverlay
 from ui.calibration_overlay import CalibrationOverlay
+from ui.settings import open_settings
 
 from storage.db.connection import now_utc
 
@@ -465,6 +466,8 @@ def run() -> None:
                 for tid in tracks:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
+            elif action == Action.OPEN_SETTINGS:
+                open_settings("facewatch.db", quit_key=config.get("key_quit"))
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))
