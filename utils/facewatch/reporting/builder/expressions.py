@@ -1,14 +1,14 @@
 def expressions_summary(conn, face_id: int, date: str) -> dict:
     """Expression breakdown % and blink rate per hour for a day."""
     row = conn.execute("""
-        SELECT AVG(neutral_pct)    AS neutral,
-               AVG(drowsy_pct)     AS drowsy,
-               SUM(smile_count)    AS smiles,
-               SUM(angry_count)    AS angry,
-               SUM(surprised_count)AS surprised,
-               SUM(blink_left)     AS blink_left,
-               SUM(blink_right)    AS blink_right,
-               SUM(interval_sec)   AS total_sec
+        SELECT SUM(neutral_pct * interval_sec) / SUM(interval_sec) AS neutral,
+               SUM(drowsy_pct  * interval_sec) / SUM(interval_sec) AS drowsy,
+               SUM(smile_count)                                     AS smiles,
+               SUM(angry_count)                                     AS angry,
+               SUM(surprised_count)                                 AS surprised,
+               SUM(blink_left)                                      AS blink_left,
+               SUM(blink_right)                                     AS blink_right,
+               SUM(interval_sec)                                    AS total_sec
         FROM stats
         WHERE face_id = ? AND date(timestamp) = ?
     """, (face_id, date)).fetchone()

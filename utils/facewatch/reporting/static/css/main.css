@@ -132,6 +132,30 @@ body {
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kpi-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: default;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.kpi-info:hover {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
 }
 
 /* ── KPI card ── */
@@ -148,8 +172,10 @@ body {
 .kpi-bad   { color: var(--red); }
 
 /* ── Chart card ── */
-.chart-card { min-height: 260px; display: flex; flex-direction: column; }
-.chart-card canvas { flex: 1; min-height: 0; }
+.chart-card { }
+.chart-wrap { position: relative; height: 260px; width: 100%; }
+.chart-wrap-sm { position: relative; height: 220px; width: 100%; }
+.chart-wrap-lg { position: relative; height: 320px; width: 100%; }
 
 /* ── Timeline heatmap ── */
 .heatmap {

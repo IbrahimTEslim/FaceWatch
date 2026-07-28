@@ -475,6 +475,9 @@ def run() -> None:
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
                 open_settings("facewatch.db", quit_key=config.get("key_quit"))
+            elif action == Action.OPEN_REPORT:
+                import webbrowser
+                webbrowser.open(f"http://localhost:{config.get('report_port')}")
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))

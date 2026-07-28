@@ -4,10 +4,14 @@ import webbrowser
 from datetime import datetime
 
 
-def _parse_times(times_str: str) -> list[tuple[int, int]]:
+def _parse_times(report_times) -> list[tuple[int, int]]:
+    """Accepts a comma string or a list of HH:MM strings."""
+    if isinstance(report_times, str):
+        items = [t.strip() for t in report_times.split(",") if t.strip()]
+    else:
+        items = list(report_times)
     result = []
-    for t in times_str.split(","):
-        t = t.strip()
+    for t in items:
         try:
             h, m = t.split(":")
             result.append((int(h), int(m)))

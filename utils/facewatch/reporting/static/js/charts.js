@@ -78,28 +78,67 @@ function initGazeChart(canvasId, hours, offSecs) {
   });
 }
 
-// ── Expression doughnut ───────────────────────────────────────────────────────
+// ── Expression gauges (neutral % + drowsy %) ────────────────────────────────
 function initExpressionChart(canvasId, data) {
+  const container = document.getElementById(canvasId);
+  if (!container) return;
+
+  const neutral = data.neutral_pct;
+  const drowsy  = data.drowsy_pct;
+
+  const neutralColor = neutral >= 60 ? '#00dcb4' : neutral >= 35 ? '#f0c040' : '#e05050';
+  const drowsyColor  = drowsy  <= 10 ? '#00dcb4' : drowsy  <= 25 ? '#f0c040' : '#e05050';
+
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:1.25rem;padding:0.5rem 0">
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:0.8rem;color:#aaa">Neutral (calm, focused)</span>
+          <span style="font-size:0.9rem;font-weight:600;color:${neutralColor}">${neutral}%</span>
+        </div>
+        <div style="height:8px;background:#1a1a1a;border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${neutral}%;background:${neutralColor};border-radius:4px;transition:width 0.6s ease"></div>
+        </div>
+        <div style="font-size:0.72rem;color:#555;margin-top:4px">% of session with no active expression</div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:0.8rem;color:#aaa">Drowsy (PERCLOS active)</span>
+          <span style="font-size:0.9rem;font-weight:600;color:${drowsyColor}">${drowsy}%</span>
+        </div>
+        <div style="height:8px;background:#1a1a1a;border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${drowsy}%;background:${drowsyColor};border-radius:4px;transition:width 0.6s ease"></div>
+        </div>
+        <div style="font-size:0.72rem;color:#555;margin-top:4px">% of session where eye closure exceeded threshold</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Expression event counts bar chart ───────────────────────────────────────
+function initExpressionCountsChart(canvasId, data) {
   const ctx = document.getElementById(canvasId).getContext('2d');
   new Chart(ctx, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
-      labels: ['Neutral', 'Drowsy', 'Smile', 'Angry', 'Surprised'],
+      labels: ['Smile', 'Angry', 'Surprised'],
       datasets: [{
-        data: [
-          data.neutral_pct, data.drowsy_pct,
-          data.smile_count, data.angry_count, data.surprised_count
-        ],
-        backgroundColor: [ACCENT, YELLOW, '#60d0a0', RED, '#a080f0'],
-        borderWidth: 0,
-        hoverOffset: 6,
+        data: [data.smile_count, data.angry_count, data.surprised_count],
+        backgroundColor: ['#60d0a0', '#e05050', '#a080f0'],
+        borderRadius: 4,
+        borderSkipped: false,
       }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      cutout: '68%',
-      plugins: { legend: { display: true, position: 'right',
-        labels: { boxWidth: 10, padding: 12, color: '#aaa' } } }
+      scales: {
+        y: { grid: { color: '#1e1e1e' }, ticks: { stepSize: 1 } },
+        x: { grid: { display: false } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} times` } }
+      }
     }
   });
 }
@@ -166,26 +205,53 @@ function initDistanceChart(canvasId, hours, dists, alertCm) {
   });
 }
 
-// ── App usage doughnut ────────────────────────────────────────────────────────
+// ── App usage horizontal bar chart ───────────────────────────────────────────
 function initAppsChart(canvasId, categories, seconds) {
   const ctx = document.getElementById(canvasId).getContext('2d');
-  const palette = [ACCENT, '#a080f0', YELLOW, RED, '#60d0a0', '#f08060', '#80a0f0'];
+  const palette = [ACCENT, '#a080f0', YELLOW, RED, '#60d0a0', '#f08060', '#80a0f0', '#f0a0c0'];
+
+  // Group beyond top 6 into 'other'
+  let cats = categories.slice();
+  let secs = seconds.slice();
+  if (cats.length > 6) {
+    const otherSec = secs.slice(6).reduce((a, b) => a + b, 0);
+    cats = cats.slice(0, 6).concat('other');
+    secs = secs.slice(0, 6).concat(otherSec);
+  }
+  const mins = secs.map(s => +(s / 60).toFixed(1));
+
   new Chart(ctx, {
-    type: 'doughnut',
+    type: 'bar',
     data: {
-      labels: categories,
+      labels: cats,
       datasets: [{
-        data: seconds,
-        backgroundColor: palette.slice(0, categories.length),
-        borderWidth: 0,
-        hoverOffset: 6,
+        data: mins,
+        backgroundColor: cats.map((_, i) => palette[i % palette.length]),
+        borderRadius: 4,
+        borderSkipped: false,
       }]
     },
     options: {
+      indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
-      cutout: '68%',
-      plugins: { legend: { display: true, position: 'right',
-        labels: { boxWidth: 10, padding: 12, color: '#aaa' } } }
+      scales: {
+        x: { grid: { color: '#1e1e1e' }, ticks: { callback: v => v >= 60 ? Math.floor(v/60)+'h '+(v%60?Math.round(v%60)+'m':'') : v+'m' } },
+        y: { grid: { display: false } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => {
+            const mins = ctx.parsed.x;
+            if (mins >= 60) {
+              const h = Math.floor(mins / 60);
+              const m = Math.round(mins % 60);
+              return m > 0 ? ` ${h}h ${m}m` : ` ${h}h`;
+            }
+            return ` ${mins} min`;
+          }
+        }}
+      }
     }
   });
 }
