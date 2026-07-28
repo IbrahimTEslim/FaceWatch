@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %} — {{ face.display_name }}{% endblock %}
+
+{% block body %}
+<div class="controls">
+  <select class="select" onchange="location='/face/'+this.value">
+    {% for f in faces %}
+    <option value="{{ f.id }}" {% if f.id == selected_face %}selected{% endif %}>{{ f.name }}</option>
+    {% endfor %}
+  </select>
+  <select class="select" onchange="location='/face/{{ selected_face }}?date='+this.value">
+    {% for d in available_dates %}
+    <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>{{ d }}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div class="page">
+
+  {# ── Demographics ── #}
+  <div class="section-title">Profile</div>
+  <div class="grid-4">
+    <div class="card fade-up">
+      <div class="card-title">Name</div>
+      <div style="font-size:1.25rem;font-weight:600">{{ face.display_name }}</div>
+      <div class="kpi-sub">Last seen: {{ (face.last_seen or '—')[:10] }}</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Age Estimate</div>
+      <div class="kpi-value" style="color:var(--text)">{{ face.age_estimate or '—' }}</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Gender</div>
+      <div class="kpi-value" style="color:var(--text);font-size:1.5rem">{{ face.gender or '—' }}</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Face Width</div>
+      <div class="kpi-value" style="color:var(--text)">
+        {% if face.face_width_cm %}{{ face.face_width_cm | round(1) }}<span style="font-size:1rem;font-weight:400"> cm</span>{% else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Same KPIs as dashboard ── #}
+  <div class="section-title">Today's Stats — {{ selected_date }}</div>
+  <div class="grid-4">
+    <div class="card fade-up">
+      <div class="card-title">Focus Score</div>
+      {% set fs = data.focus.daily_avg %}
+      <div class="kpi-value {% if fs >= 70 %}kpi-good{% elif fs >= 40 %}kpi-warn{% else %}kpi-bad{% endif %}">
+        {{ fs }}<span style="font-size:1.2rem;font-weight:400">%</span>
+      </div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Gaze Off-Screen</div>
+      <div class="kpi-value {% if data.gaze.pct_off > 30 %}kpi-bad{% elif data.gaze.pct_off > 15 %}kpi-warn{% else %}kpi-good{% endif %}">
+        {{ data.gaze.pct_off }}<span style="font-size:1.2rem;font-weight:400">%</span>
+      </div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Proximity Alerts</div>
+      <div class="kpi-value {% if data.distance.proximity_alerts > 0 %}kpi-warn{% else %}kpi-good{% endif %}">
+        {{ data.distance.proximity_alerts }}
+      </div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Blink Rate</div>
+      <div class="kpi-value" style="color:var(--text)">
+        {{ data.expressions.blink_rate_per_min }}<span style="font-size:1rem;font-weight:400">/min</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Charts</div>
+  <div class="grid-2">
+    <div class="card chart-card" style="min-height:260px">
+      <div class="card-title">Focus Score — Hourly</div>
+      <canvas id="focusChart"></canvas>
+    </div>
+    <div class="card chart-card" style="min-height:260px">
+      <div class="card-title">Expression Breakdown</div>
+      <canvas id="exprChart"></canvas>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const d = {{ data | tojson }};
+initFocusChart('focusChart', d.focus.hours, d.focus.scores);
+initExpressionChart('exprChart', d.expressions);
+</script>
+{% endblock %}
