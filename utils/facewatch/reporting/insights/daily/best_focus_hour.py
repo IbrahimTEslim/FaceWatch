@@ -23,7 +23,7 @@ class BestFocusHour(Insight):
 
         score = round(rows["avg_focus"], 1)
         hour  = int(rows["hour"])
-        label = f"{hour:02d}:00–{hour+1:02d}:00"
+        label = f"{hour:02d}:00–{(hour+1):02d}:00"
 
         return {
             "id":      self.id,

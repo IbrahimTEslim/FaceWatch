@@ -152,7 +152,7 @@
       <div class="card-title">Monitored Time
         <span class="kpi-info" title="Total seconds FaceWatch detected your face, converted to minutes.">?</span>
       </div>
-      <div class="kpi-value kpi-good">{{ (data.gaze.total_monitored / 60) | round(0) | int }}<span style="font-size:1.2rem;font-weight:400"> min</span></div>
+      <div class="kpi-value kpi-good">{% set mins = (data.gaze.total_monitored / 60) | round(0) | int %}{% if mins >= 60 %}{{ mins // 60 }}h {{ '%02d'|format(mins % 60) }}m{% else %}{{ mins }} min{% endif %}</div>
       <div class="kpi-sub">Total session time</div>
     </div>
     <div class="card fade-up">

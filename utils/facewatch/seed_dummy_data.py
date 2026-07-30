@@ -1,14 +1,15 @@
 """
 Seed facewatch.db with dummy data for dashboard testing.
 Run from project root:
-    venv\Scripts\python.exe utils\facewatch\seed_dummy_data.py
+    venv/Scripts/python.exe utils/facewatch/seed_dummy_data.py
 """
 import sqlite3
 import random
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-DB_PATH = "facewatch.db"
+DB_PATH = Path(__file__).parent.parent.parent / "facewatch.db"
 FACE_NAME = "test_user"
 FACE_DISPLAY = "Test User"
 
@@ -29,11 +30,15 @@ conn.execute("PRAGMA foreign_keys=ON")
 
 # ── Face ──────────────────────────────────────────────────────────────────────
 now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-conn.execute("""
-    INSERT OR IGNORE INTO faces (name, display_name, status, created_at, last_seen)
-    VALUES (?, ?, 'known', ?, ?)
-""", (FACE_NAME, FACE_DISPLAY, now_str, now_str))
-conn.commit()
+
+# Reuse existing test face if present, otherwise create
+existing = conn.execute("SELECT id FROM faces WHERE name=?", (FACE_NAME,)).fetchone()
+if not existing:
+    conn.execute("""
+        INSERT INTO faces (name, display_name, status, created_at, last_seen)
+        VALUES (?, ?, 'known', ?, ?)
+    """, (FACE_NAME, FACE_DISPLAY, now_str, now_str))
+    conn.commit()
 
 face_id = conn.execute("SELECT id FROM faces WHERE name=?", (FACE_NAME,)).fetchone()["id"]
 
@@ -45,17 +50,30 @@ conn.execute("""
 """, (face_id, now_str))
 conn.commit()
 
-# ── Stats — 7 days, every 5 seconds from 09:00 to 18:00 ──────────────────────
+# ── Stats — 14 days, every 5 seconds from 09:00 to 18:00 ──────────────────────
 random.seed(42)
 today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-for day_offset in range(7):
+# Clear existing seeded stats for this face
+conn.execute("DELETE FROM stats WHERE face_id=?", (face_id,))
+conn.execute("DELETE FROM audit_log WHERE event_type LIKE 'alert_%'")
+conn.commit()
+
+for day_offset in range(14):
     day = today - timedelta(days=day_offset)
     # Simulate a 9-hour workday
     t = day.replace(hour=9)
     end = day.replace(hour=18)
     while t < end:
         hour = t.hour
+        # Simulate lunch break (13:00-13:30) and short breaks
+        if t.hour == 13 and t.minute < 30:
+            t += timedelta(minutes=30)
+            continue
+        if t.hour in (11, 15) and t.minute == 0:
+            t += timedelta(minutes=random.randint(5, 15))
+            continue
+
         # Focus varies by hour — morning high, post-lunch dip, afternoon recovery
         if 9 <= hour < 12:
             base_focus = random.uniform(70, 92)
@@ -63,6 +81,14 @@ for day_offset in range(7):
             base_focus = random.uniform(40, 65)
         else:
             base_focus = random.uniform(60, 85)
+
+        # Drowsiness spikes in post-lunch and late afternoon
+        if 13 <= hour < 15:
+            drowsy = round(random.uniform(10, 35), 1)
+        elif hour >= 16:
+            drowsy = round(random.uniform(5, 25), 1)
+        else:
+            drowsy = round(random.uniform(0, 10), 1)
 
         app, cat = random.choice(APPS)
         gaze_off = random.uniform(0, 8) if random.random() > 0.7 else 0.0
@@ -83,7 +109,7 @@ for day_offset in range(7):
             random.randint(0, 2), random.randint(0, 2),
             random.randint(0, 1), random.randint(0, 1), random.randint(0, 1),
             round(random.uniform(60, 90), 1),
-            round(random.uniform(0, 15), 1),
+            round(drowsy, 1),
             round(dist, 1),
             round(gaze_off, 2),
             prox,
@@ -97,7 +123,7 @@ for day_offset in range(7):
 conn.commit()
 
 # ── Audit log — some alert events ────────────────────────────────────────────
-for day_offset in range(7):
+for day_offset in range(14):
     day = today - timedelta(days=day_offset)
     for _ in range(random.randint(2, 8)):
         event_t = day.replace(
@@ -118,4 +144,4 @@ for day_offset in range(7):
 
 conn.commit()
 conn.close()
-print(f"Done. Seeded face_id={face_id} ({FACE_DISPLAY}) with 7 days of data.")
+print(f"Done. Seeded face_id={face_id} ({FACE_DISPLAY}) with 14 days of data.")
