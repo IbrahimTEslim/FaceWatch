@@ -7,8 +7,11 @@ from alerts.notifier import notify
 
 
 class AlertType(Enum):
-    GAZE      = "gaze"
-    PROXIMITY = "proximity"
+    GAZE         = "gaze"
+    PROXIMITY    = "proximity"
+    EYE_STRAIN   = "eye_strain"
+    FATIGUE      = "fatigue"
+    WORK_REMINDER = "work_reminder"
 
 
 class AlertPriority(Enum):
@@ -31,6 +34,10 @@ class AlertContext:
     gaze_on_screen: bool
     dist_cm:        float
     config:         ConfigStore
+    perclos:        float = 0.0
+    blink_rate_pm:  float = 0.0
+    session_sec:    float = 0.0
+    last_break_sec: float = 0.0
 
 
 @dataclass

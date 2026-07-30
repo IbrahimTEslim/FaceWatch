@@ -21,7 +21,8 @@ from analysis.gaze import GazeTracker, GazeState
 from analysis.distance import DistanceEstimator
 from analysis.focus import compute_focus_score
 
-from alerts.base import ALERT_LOGGABLE, AlertContext, AlertStatus, AlertPriority
+from alerts.base import ALERT_LOGGABLE, AlertStatus, AlertPriority, AlertType
+from alerts.context_builder import build_alert_context
 from alerts.manager import AlertManager
 
 from demographics.analyzer import DemographicsAnalyzer
@@ -144,10 +145,12 @@ def run() -> None:
     cal_overlay.start()
 
     # Per-track state
-    expressions_map: dict[int, list[Expression]] = {}
-    gaze_map:        dict[int, GazeTracker]       = {}
-    gaze_states:     dict[int, GazeState]         = {}
-    text_input:      TextInput | None             = None
+    expressions_map:  dict[int, list[Expression]] = {}
+    gaze_map:         dict[int, GazeTracker]       = {}
+    gaze_states:      dict[int, GazeState]         = {}
+    _session_start:   dict[int, float]             = {}
+    _last_absent:     dict[int, float]             = {}
+    text_input:       TextInput | None             = None
     pending_action:  MouseAction                  = MouseAction.NONE
     pending_track:   int | None                   = None
     _gaze_pointer_ids: set[int] = set()  # face_ids with pointer enabled
@@ -203,6 +206,8 @@ def run() -> None:
                 gaze_states.pop(tid, None)
                 alert_manager.drop(tid)
                 recognizer.drop_track(tid)
+                _last_absent[tid] = now
+                _session_start.pop(tid, None)
 
         # ── Per-track analysis ────────────────────────────────────────────────
         for i, (track_id, bbox) in enumerate(tracks.items()):
@@ -210,6 +215,7 @@ def run() -> None:
             if track_id not in expressions_map:
                 expressions_map[track_id] = build_expressions()
                 gaze_map[track_id]        = GazeTracker()
+                _session_start[track_id]  = now
 
             crop = _crop(frame, bbox)
             if crop.size > 0:
@@ -232,7 +238,15 @@ def run() -> None:
             focal_length_px = calibration.get("focal_length_px")
             dist_cm = distance.estimate(landmarks, face_width, focal_length_px, frame_w)
 
-            ctx    = AlertContext(gaze_on_screen=gaze_state.on_screen, dist_cm=dist_cm, config=config)
+            ctx = build_alert_context(
+                expressions=expressions_map[track_id],
+                session_start=_session_start.get(track_id, now),
+                last_absent=_last_absent.get(track_id, None),
+                gaze_on_screen=gaze_state.on_screen,
+                dist_cm=dist_cm,
+                config=config,
+                now=now,
+            )
             events = alert_manager.update(track_id, ctx, dt)
             for event in events:
                 if event.status in ALERT_LOGGABLE:
@@ -272,7 +286,7 @@ def run() -> None:
                     config=config,
                 )
 
-                proximity_alerts = sum(1 for a in alert_manager._tracks.get(track_id, []) if a.active and a.alert_type.value == "proximity")
+                proximity_alerts = alert_manager.count_active_by_type(track_id, AlertType.PROXIMITY)
 
                 row = {
                     "timestamp":           now_utc(),
