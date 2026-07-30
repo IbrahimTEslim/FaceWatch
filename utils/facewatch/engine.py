@@ -44,6 +44,7 @@ from ui.mouse_handler import MouseHandler, MouseAction
 from ui.alert_overlay import AlertOverlay
 from ui.calibration_overlay import CalibrationOverlay
 from ui.settings import open_settings
+from reporting import Reporter
 
 from storage.db.connection import now_utc
 
@@ -149,6 +150,12 @@ def run() -> None:
     overlay.start()
     cal_overlay = CalibrationOverlay()
     cal_overlay.start()
+    reporter = Reporter(
+        db_path="facewatch.db",
+        port=config.get("report_port"),
+        report_times=config.get("report_times"),
+    )
+    reporter.start()
 
     # Per-track state
     expressions_map:  dict[int, list[Expression]] = {}
@@ -488,6 +495,9 @@ def run() -> None:
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
                 open_settings("facewatch.db", quit_key=config.get("key_quit"))
+            elif action == Action.OPEN_REPORT:
+                import webbrowser
+                webbrowser.open(f"http://localhost:{config.get('report_port')}")
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))

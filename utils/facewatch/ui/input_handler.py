@@ -11,6 +11,7 @@ class Action(Enum):
     FORCE_STATS      = auto()
     FORCE_REIDENTIFY = auto()
     OPEN_SETTINGS    = auto()
+    OPEN_REPORT      = auto()
 
 
 _KEY_MAP = {
@@ -21,6 +22,7 @@ _KEY_MAP = {
     "key_force_stats":      Action.FORCE_STATS,
     "key_force_reidentify": Action.FORCE_REIDENTIFY,
     "key_settings":         Action.OPEN_SETTINGS,
+    "key_report":           Action.OPEN_REPORT,
 }
 
 

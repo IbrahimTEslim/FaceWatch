@@ -76,4 +76,5 @@ DEFAULTS = [
     ("key_force_stats",       "s", "str", "Key to force an immediate stats write.",    "keys"),
     ("key_force_reidentify",  "f", "str", "Key to force re-identify unknown faces.",   "keys"),
     ("key_settings",           ",", "str", "Key to open settings window.",              "keys"),
+    ("key_report",             "o", "str", "Key to open report in browser.",            "keys"),
 ]
