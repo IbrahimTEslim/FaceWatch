@@ -284,3 +284,65 @@ body {
 .fade-up:nth-child(2) { animation-delay: 0.10s; }
 .fade-up:nth-child(3) { animation-delay: 0.15s; }
 .fade-up:nth-child(4) { animation-delay: 0.20s; }
+
+/* ── Score card ── */
+.score-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+}
+.score-ring {
+  position: relative;
+  width: 88px;
+  height: 88px;
+}
+.score-ring svg { transform: rotate(-90deg); }
+.score-ring-bg  { fill: none; stroke: var(--surface2); stroke-width: 7; }
+.score-ring-fill { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease; }
+.score-ring-fill.green  { stroke: var(--green); }
+.score-ring-fill.orange { stroke: var(--yellow); }
+.score-ring-fill.red    { stroke: var(--red); }
+.score-ring-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.score-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ── Insight card ── */
+.insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1rem 1.25rem;
+}
+.insight-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+.insight-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.insight-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.grid-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}

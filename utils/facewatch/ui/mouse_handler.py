@@ -97,10 +97,11 @@ class MouseHandler:
         h       = len(items) * item_h + pad
         mx, my  = self._menu_pos
 
-        # Clamp to frame
+        # Clamp to frame and store clamped position for hit detection
         fh, fw  = frame.shape[:2]
         mx      = min(mx, fw - w - 4)
         my      = min(my, fh - h - 4)
+        self._menu_pos = (mx, my)
 
         overlay = frame.copy()
         cv2.rectangle(overlay, (mx, my), (mx + w, my + h), _BG, -1)

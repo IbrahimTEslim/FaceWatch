@@ -1,7 +1,13 @@
 import sys
+import os
 import time
 import argparse
+import threading
 import multiprocessing
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"]  = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["GLOG_minloglevel"]       = "3"
 
 import cv2
 import numpy as np
