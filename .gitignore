@@ -39,3 +39,6 @@ Thumbs.db
 
 # Test artifacts
 test_*.db
+
+# Seed / dev scripts
+utils/facewatch/seed_dummy_data.py

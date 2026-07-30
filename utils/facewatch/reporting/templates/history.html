@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %} — History{% endblock %}
+
+{% block body %}
+<div class="controls">
+  <select class="select" onchange="location='/history?face_id='+this.value">
+    {% for f in faces %}
+    <option value="{{ f.id }}" {% if f.id == selected_face %}selected{% endif %}>{{ f.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div class="page">
+
+  <div class="section-title">30-Day Focus Trend</div>
+  <div class="card chart-card">
+    <div class="card-title">Daily Average Focus Score</div>
+    <div class="chart-wrap-lg"><canvas id="historyChart"></canvas></div>
+  </div>
+
+  <div class="section-title">Highlights</div>
+  <div class="grid-2">
+    <div class="card fade-up">
+      <div class="card-title">Best Day</div>
+      <div class="kpi-value kpi-good">{{ hist.best_day.score }}<span style="font-size:1.2rem;font-weight:400">%</span></div>
+      <div class="kpi-sub">{{ hist.best_day.date or '—' }}</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Worst Day</div>
+      <div class="kpi-value kpi-bad">{{ hist.worst_day.score }}<span style="font-size:1.2rem;font-weight:400">%</span></div>
+      <div class="kpi-sub">{{ hist.worst_day.date or '—' }}</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const h = {{ hist | tojson }};
+initHistoryChart('historyChart', h.days, h.scores);
+</script>
+{% endblock %}

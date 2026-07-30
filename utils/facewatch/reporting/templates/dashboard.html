@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %} — Dashboard{% endblock %}
+
+{% block nav_right %}
+<a class="nav-link" href="/face/{{ selected_face }}">Profile</a>
+{% endblock %}
+
+{% block body %}
+<div class="controls">
+  <select class="select" onchange="location='/?face_id='+this.value+'&date={{ selected_date }}'">
+    {% for f in faces %}
+    <option value="{{ f.id }}" {% if f.id == selected_face %}selected{% endif %}>{{ f.name }}</option>
+    {% endfor %}
+  </select>
+  <select class="select" onchange="location='/?face_id={{ selected_face }}&date='+this.value">
+    {% for d in available_dates %}
+    <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>{{ d }}</option>
+    {% endfor %}
+  </select>
+</div>
+
+<div class="page">
+
+  {# ── KPI cards ── #}
+  <div class="section-title">Overview</div>
+  <div class="grid-4">
+    <div class="card fade-up">
+      <div class="card-title">Focus Score
+        <span class="kpi-info" title="Weighted score 0–100. Keep eyes on screen (40%), stay alert (30%), avoid distractions (20%), maintain healthy distance (10%).">?</span>
+      </div>
+      {% set fs = data.focus.daily_avg %}
+      <div class="kpi-value {% if fs >= 70 %}kpi-good{% elif fs >= 40 %}kpi-warn{% else %}kpi-bad{% endif %}">
+        {{ fs }}<span style="font-size:1.2rem;font-weight:400">%</span>
+      </div>
+      <div class="kpi-sub">Daily average</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Monitored Time
+        <span class="kpi-info" title="Total seconds FaceWatch detected your face, converted to minutes.">?</span>
+      </div>
+      <div class="kpi-value kpi-good">{{ (data.gaze.total_monitored / 60) | round(0) | int }}<span style="font-size:1.2rem;font-weight:400"> min</span></div>
+      <div class="kpi-sub">Total session time</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Gaze Off-Screen
+        <span class="kpi-info" title="% of monitored time your eyes were not looking at the screen.">?</span>
+      </div>
+      <div class="kpi-value {% if data.gaze.pct_off > 30 %}kpi-bad{% elif data.gaze.pct_off > 15 %}kpi-warn{% else %}kpi-good{% endif %}">
+        {{ data.gaze.pct_off }}<span style="font-size:1.2rem;font-weight:400">%</span>
+      </div>
+      <div class="kpi-sub">{{ data.gaze.total_off_sec }}s off-screen</div>
+    </div>
+    <div class="card fade-up">
+      <div class="card-title">Proximity Alerts
+        <span class="kpi-info" title="Number of times you were too close to the camera beyond the configured threshold.">?</span>
+      </div>
+      <div class="kpi-value {% if data.distance.proximity_alerts > 5 %}kpi-bad{% elif data.distance.proximity_alerts > 0 %}kpi-warn{% else %}kpi-good{% endif %}">
+        {{ data.distance.proximity_alerts }}
+      </div>
+      <div class="kpi-sub">Closest: {{ data.distance.min_cm }} cm</div>
+    </div>
+  </div>
+
+  {# ── Main charts ── #}
+  <div class="section-title">Focus &amp; App Usage</div>
+  <div class="grid-2">
+    <div class="card chart-card">
+      <div class="card-title">Focus Score — Hourly</div>
+      <div class="chart-wrap"><canvas id="focusChart"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-title">App Usage by Category</div>
+      <div class="chart-wrap-lg"><canvas id="appsChart"></canvas></div>
+    </div>
+  </div>
+
+  {# ── Secondary charts ── #}
+  <div class="section-title">Expressions, Blinks &amp; Distance</div>
+  <div class="grid-2">
+    <div class="card chart-card">
+      <div class="card-title">Attention State</div>
+      <div id="exprChart"></div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-title">Expression Events</div>
+      <div class="chart-wrap-sm"><canvas id="exprCountsChart"></canvas></div>
+    </div>
+  </div>
+  <div class="grid-2" style="margin-top:1rem">
+    <div class="card chart-card">
+      <div class="card-title">Blink Rate — Hourly</div>
+      <div class="chart-wrap-sm"><canvas id="blinkChart"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-title">Distance — Hourly (cm)</div>
+      <div class="chart-wrap-sm"><canvas id="distChart"></canvas></div>
+    </div>
+  </div>
+
+  {# ── Gaze off-screen ── #}
+  <div class="section-title">Gaze Off-Screen</div>
+  <div class="card chart-card">
+    <div class="card-title">Off-Screen Seconds per Hour</div>
+    <div class="chart-wrap-sm"><canvas id="gazeChart"></canvas></div>
+  </div>
+
+  {# ── Heatmap ── #}
+  <div class="section-title">Focus Heatmap — Hour by Hour</div>
+  <div class="card">
+    <div class="heatmap" id="heatmap">
+      {% for h in range(24) %}
+      <div class="heatmap-cell" data-hour="{{ h }}"></div>
+      {% endfor %}
+    </div>
+    <div class="heatmap-labels">
+      {% for h in range(24) %}
+      <div class="heatmap-label">{{ '%02d'|format(h) }}</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ── Top apps ── #}
+  <div class="section-title">Top Apps</div>
+  <div class="card">
+    {% set max_sec = data.apps.top_apps[0].seconds if data.apps.top_apps else 1 %}
+    {% for app in data.apps.top_apps %}
+    <div class="app-row">
+      <div class="app-name">{{ app.name }}</div>
+      <div class="app-bar-bg">
+        <div class="app-bar-fill" style="width:{{ (app.seconds / max_sec * 100)|round(1) }}%"></div>
+      </div>
+      <div class="app-time">{{ app.minutes }} min</div>
+      <span class="badge badge-active">{{ app.category }}</span>
+    </div>
+    {% else %}
+    <div style="color:var(--text-muted);font-size:0.875rem">No app data for this day.</div>
+    {% endfor %}
+  </div>
+
+  {# ── Alerts table ── #}
+  <div class="section-title">Recent Alerts</div>
+  <div class="card">
+    {% if data.alerts.events %}
+    <table class="table">
+      <thead>
+        <tr><th>Time</th><th>Type</th><th>Message</th></tr>
+      </thead>
+      <tbody>
+        {% for ev in data.alerts.events %}
+        <tr>
+          <td style="color:var(--text-muted);font-size:0.8rem">{{ ev.timestamp }}</td>
+          <td><span class="badge badge-{{ ev.type }}">{{ ev.type }}</span></td>
+          <td>{{ ev.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--text-muted);font-size:0.875rem">No alerts for this day.</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const d = {{ data | tojson }};
+initFocusChart('focusChart', d.focus.hours, d.focus.scores);
+initGazeChart('gazeChart', d.gaze.hours, d.gaze.off_per_hour);
+initExpressionChart('exprChart', d.expressions);
+initExpressionCountsChart('exprCountsChart', d.expressions);
+initBlinkChart('blinkChart', d.expressions.hours, d.expressions.blink_left_hourly, d.expressions.blink_right_hourly);
+initDistanceChart('distChart', d.distance.hours, d.distance.dist_per_hour, {{ data.distance.avg_cm }});
+initAppsChart('appsChart', d.apps.categories, d.apps.cat_seconds);
+initHeatmap('heatmap', d.focus.hours, d.focus.scores);
+</script>
+{% endblock %}
