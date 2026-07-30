@@ -5,7 +5,7 @@ class LongestSession(Insight):
     id    = "longest_session"
     scope = "daily"
 
-    def compute(self, conn, face_id: int, date: str) -> dict | None:
+    def compute(self, conn, face_id: int, date: str, config) -> dict | None:
         rows = conn.execute("""
             SELECT timestamp, interval_sec
             FROM stats

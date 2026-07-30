@@ -1,14 +1,14 @@
 from reporting.insights.base import Insight
 
-_SAFE_MIN_CM = 45.0
-_SAFE_MAX_CM = 90.0
-
 
 class ErgonomicScore(Insight):
     id    = "ergonomic_score"
     scope = "score"
 
-    def compute(self, conn, face_id: int, date: str) -> dict | None:
+    def compute(self, conn, face_id: int, date: str, config) -> dict | None:
+        safe_min = config.get("focus_posture_min_cm")
+        safe_max = config.get("focus_posture_max_cm")
+
         row = conn.execute("""
             SELECT SUM(
                        CASE
@@ -21,7 +21,7 @@ class ErgonomicScore(Insight):
             FROM stats
             WHERE face_id = ? AND date(timestamp) = ?
               AND distance_cm > 0
-        """, (_SAFE_MIN_CM, _SAFE_MAX_CM, face_id, date)).fetchone()
+        """, (safe_min, safe_max, face_id, date)).fetchone()
 
         if not row or not row["total_sec"]:
             return None

@@ -38,14 +38,14 @@ _INSIGHTS: list[Insight] = [
 ]
 
 
-def build_insights(conn, face_id: int, date: str) -> dict:
+def build_insights(conn, face_id: int, date: str, config) -> dict:
     """
     Run all registered insights. Returns a dict keyed by insight id.
     Insights returning None (insufficient data) are omitted.
     """
     result: dict[str, dict] = {}
     for insight in _INSIGHTS:
-        data = insight.compute(conn, face_id, date)
+        data = insight.compute(conn, face_id, date, config)
         if data is not None:
             result[insight.id] = data
     return result

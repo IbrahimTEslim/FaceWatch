@@ -7,7 +7,7 @@ from .alerts      import alerts_summary
 from reporting.insights import build_insights
 
 
-def build_report_data(conn, face_id: int, date: str) -> dict:
+def build_report_data(conn, face_id: int, date: str, config) -> dict:
     """
     Aggregate all stats for face_id on date.
     Returns a single dict passed to templates and the JSON endpoint.
@@ -22,7 +22,7 @@ def build_report_data(conn, face_id: int, date: str) -> dict:
         "distance":      distance_summary(conn, face_id, date),
         "apps":          apps_summary(conn, face_id, date),
         "alerts":        alerts_summary(conn, face_id, date),
-        "insights":      build_insights(conn, face_id, date),
+        "insights":      build_insights(conn, face_id, date, config),
     }
 
 

@@ -1,8 +1,10 @@
 import json
 import sqlite3
 from datetime import date as date_type
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request
 
+from storage.db import Database
+from storage.config_store import ConfigStore
 from .builder import build_report_data, get_known_faces, get_available_dates
 from .builder.focus import focus_history
 
@@ -22,7 +24,9 @@ def create_app(db_path: str) -> Flask:
     static_dir   = str(__import__("pathlib").Path(__file__).parent / "static")
     _app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
-    conn = _get_conn(db_path)
+    conn   = _get_conn(db_path)
+    db     = Database(db_path)
+    config = ConfigStore(db)
 
     @_app.route("/")
     def index():
@@ -32,7 +36,7 @@ def create_app(db_path: str) -> Flask:
         face_id = request.args.get("face_id", faces[0]["id"], type=int)
         today   = request.args.get("date", str(date_type.today()))
         dates   = get_available_dates(conn, face_id)
-        data    = build_report_data(conn, face_id, today)
+        data    = build_report_data(conn, face_id, today, config)
         return render_template("dashboard.html",
                                data=data, faces=faces,
                                selected_face=face_id,
@@ -55,7 +59,7 @@ def create_app(db_path: str) -> Flask:
         faces = get_known_faces(conn)
         today = str(date_type.today())
         dates = get_available_dates(conn, face_id)
-        data  = build_report_data(conn, face_id, today)
+        data  = build_report_data(conn, face_id, today, config)
         face_row = conn.execute(
             "SELECT f.*, d.age_estimate, d.gender, d.race, d.face_width_cm "
             "FROM faces f LEFT JOIN demographics d ON d.face_id=f.id WHERE f.id=?",
@@ -73,7 +77,7 @@ def create_app(db_path: str) -> Flask:
         faces   = get_known_faces(conn)
         face_id = request.args.get("face_id", faces[0]["id"] if faces else 1, type=int)
         day     = request.args.get("date", str(date_type.today()))
-        data    = build_report_data(conn, face_id, day)
+        data    = build_report_data(conn, face_id, day, config)
         return jsonify(data)
 
     return _app

@@ -5,7 +5,7 @@ class FatigueScore(Insight):
     id    = "fatigue_score"
     scope = "score"
 
-    def compute(self, conn, face_id: int, date: str) -> dict | None:
+    def compute(self, conn, face_id: int, date: str, config) -> dict | None:
         row = conn.execute("""
             SELECT SUM(drowsy_pct * interval_sec) / SUM(interval_sec) AS avg_drowsy,
                    SUM(interval_sec)                                   AS total_sec
