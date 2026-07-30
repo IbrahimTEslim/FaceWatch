@@ -48,8 +48,7 @@
   {% endif %}
 
   {# ── Daily insights ── #}
-  {% set daily_ids = ['longest_session','meaningful_breaks','distraction_duration','best_focus_hour','first_fatigue','screen_presence','viewing_distance_trend'] %}
-  {% if daily_ids | selectattr('in', ins) | list %}
+  {% if ins %}
   <div class="section-title">Daily Insights</div>
   <div class="grid-insights">
 
@@ -105,7 +104,7 @@
     <div class="card insight-card fade-up">
       <div class="insight-label">Viewing Distance Trend</div>
       <div class="insight-value">{{ ins.viewing_distance_trend.trend | capitalize }}</div>
-      <div class="insight-sub">{{ ins.viewing_distance_trend.drift_cm | abs }} cm drift &middot; avg {{ ins.viewing_distance_trend.second_avg }} cm</div>
+      <div class="insight-sub">{{ ins.viewing_distance_trend.drift_cm | round(1) }} cm drift &middot; avg {{ ins.viewing_distance_trend.second_avg }} cm</div>
     </div>
     {% endif %}
 
