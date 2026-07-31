@@ -1,20 +1,29 @@
 from .db import Database
 from config_defaults import DEFAULTS
 
+_TYPE_MAP: dict[str, str] = {row[0]: row[2] for row in DEFAULTS}
+
 
 class ConfigStore:
     def __init__(self, db: Database):
-        self._db = db
+        self._db    = db
+        self._cache: dict[str, str] = {}
+        self._load_cache()
+
+    def _load_cache(self) -> None:
+        for key, default, type_, *_ in DEFAULTS:
+            raw = self._db.get_config(key)
+            self._cache[key] = raw if raw is not None else str(default)
 
     def get(self, key: str) -> int | float | str | bool | list:
-        raw = self._db.get_config(key)
+        raw = self._cache.get(key)
         if raw is None:
             raise KeyError(f"Config key not found: {key}")
-        type_ = self._get_type(key)
-        return self._cast(raw, type_)
+        return self._cast(raw, _TYPE_MAP.get(key, "str"))
 
     def set(self, key: str, value) -> None:
         self._db.set_config(key, value)
+        self._cache[key] = str(value)
         self._db.log_audit("config_changed", {"key": key, "value": str(value)})
 
     def get_all_by_category(self, category: str) -> list[dict]:
@@ -24,15 +33,9 @@ class ConfigStore:
         for row in DEFAULTS:
             if row[0] == key:
                 self._db.set_config(key, str(row[1]))
+                self._cache[key] = str(row[1])
                 return
         raise KeyError(f"No default found for key: {key}")
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _get_type(self, key: str) -> str:
-        return self._db.get_config_type(key) or "str"
 
     @staticmethod
     def _cast(value: str, type_: str) -> int | float | str | bool | list:

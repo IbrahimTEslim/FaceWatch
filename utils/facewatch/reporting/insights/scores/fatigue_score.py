@@ -17,12 +17,12 @@ class FatigueScore(Insight):
             return None
 
         avg_drowsy = row["avg_drowsy"] or 0.0
-        score      = round(max(0.0, 100.0 - avg_drowsy), 1)
+        score      = round(min(100.0, avg_drowsy), 1)
         return {
             "id":      self.id,
             "score":   score,
             "label":   "Fatigue Score",
             "out_of":  100,
-            "color":   "green" if score >= 80 else "orange" if score >= 50 else "red",
+            "color":   "red" if score >= 50 else "orange" if score >= 20 else "green",
             "summary": f"{score}/100",
         }

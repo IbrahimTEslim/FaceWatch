@@ -71,8 +71,8 @@
     {% if ins.distraction_duration is defined %}
     <div class="card insight-card fade-up">
       <div class="insight-label">Distraction Duration</div>
-      <div class="insight-value">{{ ins.distraction_duration.avg_sec }}<span style="font-size:1rem;font-weight:400">s avg</span></div>
-      <div class="insight-sub">{{ ins.distraction_duration.count }} episodes &middot; longest {{ ins.distraction_duration.longest_sec }}s</div>
+      <div class="insight-value">{{ ins.distraction_duration.avg_fmt }}</div>
+      <div class="insight-sub">{{ ins.distraction_duration.count }} episodes &middot; longest {{ ins.distraction_duration.longest_fmt }}</div>
     </div>
     {% endif %}
 
@@ -88,7 +88,7 @@
     <div class="card insight-card fade-up">
       <div class="insight-label">First Fatigue</div>
       <div class="insight-value">{{ ins.first_fatigue.time[11:] }}</div>
-      <div class="insight-sub">Sustained {{ ins.first_fatigue.duration_sec }}s</div>
+      <div class="insight-sub">Sustained {{ ins.first_fatigue.duration_fmt }}</div>
     </div>
     {% endif %}
 
@@ -162,7 +162,7 @@
       <div class="kpi-value {% if data.gaze.pct_off > 30 %}kpi-bad{% elif data.gaze.pct_off > 15 %}kpi-warn{% else %}kpi-good{% endif %}">
         {{ data.gaze.pct_off }}<span style="font-size:1.2rem;font-weight:400">%</span>
       </div>
-      <div class="kpi-sub">{{ data.gaze.total_off_sec }}s off-screen</div>
+      <div class="kpi-sub">{% set s = data.gaze.total_off_sec | int %}{% if s < 60 %}{{ s }}s off-screen{% elif s < 3600 %}{{ s // 60 }}m {{ '%02d'|format(s % 60) }}s off-screen{% else %}{{ s // 3600 }}h {{ '%02d'|format((s % 3600) // 60) }}m off-screen{% endif %}</div>
     </div>
     <div class="card fade-up">
       <div class="card-title">Proximity Alerts

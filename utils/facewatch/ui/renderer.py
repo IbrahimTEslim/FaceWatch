@@ -121,7 +121,10 @@ class Renderer:
             _put(frame, dist_text, x1, y1 + 18)
 
             if gaze and gaze.alert_active:
-                _put(frame, "! LOOK AWAY", x1, y1 + 36, _RED)
+                if gaze.on_screen:
+                    _put(frame, f"clearing {gaze.clearing_sec:.1f}s", x2 - 90, y1 + 18, _GREEN)
+                else:
+                    _put(frame, "! LOOK AWAY", x1, y1 + 36, _RED)
 
         if self._debug:
             self._draw_debug_window(

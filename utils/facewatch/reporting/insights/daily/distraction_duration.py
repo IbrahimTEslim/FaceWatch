@@ -2,6 +2,15 @@ from datetime import datetime
 from reporting.insights.base import Insight
 
 
+def _fmt(sec: float) -> str:
+    sec = int(sec)
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m {sec % 60:02d}s"
+    return f"{sec // 3600}h {(sec % 3600) // 60:02d}m"
+
+
 class DistractionDuration(Insight):
     id    = "distraction_duration"
     scope = "daily"
@@ -56,5 +65,7 @@ class DistractionDuration(Insight):
             "count":       count,
             "avg_sec":     avg_sec,
             "longest_sec": longest,
-            "summary":     f"{count} distractions, avg {avg_sec}s, longest {longest}s",
+            "avg_fmt":     _fmt(avg_sec),
+            "longest_fmt": _fmt(longest),
+            "summary":     f"{count} distractions, avg {_fmt(avg_sec)}, longest {_fmt(longest)}",
         }

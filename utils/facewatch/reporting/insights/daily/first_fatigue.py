@@ -2,6 +2,14 @@ from datetime import datetime
 from reporting.insights.base import Insight
 
 
+def _fmt(sec: int) -> str:
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m {sec % 60:02d}s"
+    return f"{sec // 3600}h {(sec % 3600) // 60:02d}m"
+
+
 class FirstFatigue(Insight):
     id    = "first_fatigue"
     scope = "daily"
@@ -43,10 +51,11 @@ class FirstFatigue(Insight):
             episode_broken = gap > gap_threshold or (curr["drowsy_pct"] or 0.0) < threshold * 100.0
             if episode_broken and cur_sec >= min_sustained:
                 return {
-                    "id":      self.id,
-                    "time":    cur_start[:16].replace("T", " "),
+                    "id":           self.id,
+                    "time":         cur_start[:16].replace("T", " "),
                     "duration_sec": round(cur_sec),
-                    "summary": f"First fatigue at {cur_start[11:16]}",
+                    "duration_fmt": _fmt(round(cur_sec)),
+                    "summary":      f"First fatigue at {cur_start[11:16]}",
                 }
             elif episode_broken:
                 cur_sec   = 0.0
@@ -63,6 +72,7 @@ class FirstFatigue(Insight):
                 "id":           self.id,
                 "time":         cur_start[:16].replace("T", " "),
                 "duration_sec": round(cur_sec),
+                "duration_fmt": _fmt(round(cur_sec)),
                 "summary":      f"First fatigue at {cur_start[11:16]}",
             }
 

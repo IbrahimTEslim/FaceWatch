@@ -47,6 +47,7 @@ from ui.settings import open_settings
 from reporting import Reporter
 
 from storage.db.connection import now_utc
+from startup import ensure_models
 
 
 def _parse_args() -> argparse.Namespace:
@@ -133,6 +134,8 @@ def run() -> None:
     if args.reset_config:
         for key, value, *_ in DEFAULTS:
             db.set_config(key, str(value))
+
+    ensure_models(config.get("face_landmarker_model_path"))
 
     # ── Init modules ──────────────────────────────────────────────────────────
     camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
