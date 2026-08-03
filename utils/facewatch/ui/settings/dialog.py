@@ -10,7 +10,8 @@ from .category_panel import CategoryPanel
 
 _CATEGORY_ORDER = [
     "camera", "recognition", "gaze", "proximity",
-    "expressions", "focus", "demographics", "report", "ui", "keys", "storage", "models",
+    "expressions", "focus", "fatigue", "wellness",
+    "demographics", "report", "ui", "keys", "storage", "models",
 ]
 
 _STYLE = """

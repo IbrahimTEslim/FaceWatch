@@ -17,5 +17,8 @@ class AlertManager:
     def active_priorities(self) -> set[AlertPriority]:
         return {a.priority for alerts in self._tracks.values() for a in alerts if a.active}
 
+    def count_active_by_type(self, track_id: int, alert_type: AlertType) -> int:
+        return sum(1 for a in self._tracks.get(track_id, []) if a.active and a.alert_type is alert_type)
+
     def drop(self, track_id: int) -> None:
         self._tracks.pop(track_id, None)

@@ -21,6 +21,120 @@
 
 <div class="page">
 
+  {# ── Composite scores ── #}
+  {% set ins = data.insights %}
+  {% if ins.focus_score or ins.fatigue_score or ins.ergonomic_score %}
+  <div class="section-title">Scores</div>
+  <div class="grid-3">
+    {% for sid in ['focus_score', 'fatigue_score', 'ergonomic_score'] %}
+    {% if ins[sid] is defined %}
+    {% set s = ins[sid] %}
+    <div class="card score-card fade-up">
+      <div class="score-ring">
+        <svg viewBox="0 0 88 88" width="88" height="88">
+          <circle class="score-ring-bg"  cx="44" cy="44" r="38"/>
+          <circle class="score-ring-fill {{ s.color }}"
+                  cx="44" cy="44" r="38"
+                  stroke-dasharray="238.76"
+                  stroke-dashoffset="{{ 238.76 * (1 - s.score / 100) | round(2) }}"/>
+        </svg>
+        <div class="score-ring-value">{{ s.score | int }}</div>
+      </div>
+      <div class="score-label">{{ s.label }}</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Daily insights ── #}
+  {% if ins %}
+  <div class="section-title">Daily Insights</div>
+  <div class="grid-insights">
+
+    {% if ins.longest_session is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Longest Focus Session</div>
+      <div class="insight-value">{{ ins.longest_session.minutes }} <span style="font-size:1rem;font-weight:400">min</span></div>
+      <div class="insight-sub">Starting {{ ins.longest_session.start }}</div>
+    </div>
+    {% endif %}
+
+    {% if ins.meaningful_breaks is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Meaningful Breaks</div>
+      <div class="insight-value">{{ ins.meaningful_breaks.count }}</div>
+      <div class="insight-sub">Avg {{ ins.meaningful_breaks.avg_min }} min each</div>
+    </div>
+    {% endif %}
+
+    {% if ins.distraction_duration is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Distraction Duration</div>
+      <div class="insight-value">{{ ins.distraction_duration.avg_fmt }}</div>
+      <div class="insight-sub">{{ ins.distraction_duration.count }} episodes &middot; longest {{ ins.distraction_duration.longest_fmt }}</div>
+    </div>
+    {% endif %}
+
+    {% if ins.best_focus_hour is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Best Focus Hour</div>
+      <div class="insight-value">{{ ins.best_focus_hour.label }}</div>
+      <div class="insight-sub">{{ ins.best_focus_hour.score }}/100 focus score</div>
+    </div>
+    {% endif %}
+
+    {% if ins.first_fatigue is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">First Fatigue</div>
+      <div class="insight-value">{{ ins.first_fatigue.time[11:] }}</div>
+      <div class="insight-sub">Sustained {{ ins.first_fatigue.duration_fmt }}</div>
+    </div>
+    {% endif %}
+
+    {% if ins.screen_presence is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Screen Presence</div>
+      <div class="insight-value">{{ ins.screen_presence.present_pct }}<span style="font-size:1rem;font-weight:400">%</span></div>
+      <div class="insight-sub">Away {{ ins.screen_presence.absent_pct }}% of session</div>
+    </div>
+    {% endif %}
+
+    {% if ins.viewing_distance_trend is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Viewing Distance Trend</div>
+      <div class="insight-value">{{ ins.viewing_distance_trend.trend | capitalize }}</div>
+      <div class="insight-sub">{{ ins.viewing_distance_trend.drift_cm | round(1) }} cm drift &middot; avg {{ ins.viewing_distance_trend.second_avg }} cm</div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
+  {# ── Weekly insights ── #}
+  {% if ins.consistency_score is defined or ins.best_weekday is defined %}
+  <div class="section-title">Weekly Insights</div>
+  <div class="grid-insights">
+
+    {% if ins.consistency_score is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Consistency Score</div>
+      <div class="insight-value">{{ ins.consistency_score.consistency }}<span style="font-size:1rem;font-weight:400">/100</span></div>
+      <div class="insight-sub">Over {{ ins.consistency_score.days | length }} days &middot; stddev {{ ins.consistency_score.stddev }}</div>
+    </div>
+    {% endif %}
+
+    {% if ins.best_weekday is defined %}
+    <div class="card insight-card fade-up">
+      <div class="insight-label">Most Productive Day</div>
+      <div class="insight-value">{{ ins.best_weekday.best_day }}</div>
+      <div class="insight-sub">{{ ins.best_weekday.best_score }}/100 &middot; worst: {{ ins.best_weekday.worst_day }}</div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
   {# ── KPI cards ── #}
   <div class="section-title">Overview</div>
   <div class="grid-4">
@@ -38,7 +152,7 @@
       <div class="card-title">Monitored Time
         <span class="kpi-info" title="Total seconds FaceWatch detected your face, converted to minutes.">?</span>
       </div>
-      <div class="kpi-value kpi-good">{{ (data.gaze.total_monitored / 60) | round(0) | int }}<span style="font-size:1.2rem;font-weight:400"> min</span></div>
+      <div class="kpi-value kpi-good">{% set mins = (data.gaze.total_monitored / 60) | round(0) | int %}{% if mins >= 60 %}{{ mins // 60 }}h {{ '%02d'|format(mins % 60) }}m{% else %}{{ mins }} min{% endif %}</div>
       <div class="kpi-sub">Total session time</div>
     </div>
     <div class="card fade-up">
@@ -48,7 +162,7 @@
       <div class="kpi-value {% if data.gaze.pct_off > 30 %}kpi-bad{% elif data.gaze.pct_off > 15 %}kpi-warn{% else %}kpi-good{% endif %}">
         {{ data.gaze.pct_off }}<span style="font-size:1.2rem;font-weight:400">%</span>
       </div>
-      <div class="kpi-sub">{{ data.gaze.total_off_sec }}s off-screen</div>
+      <div class="kpi-sub">{% set s = data.gaze.total_off_sec | int %}{% if s < 60 %}{{ s }}s off-screen{% elif s < 3600 %}{{ s // 60 }}m {{ '%02d'|format(s % 60) }}s off-screen{% else %}{{ s // 3600 }}h {{ '%02d'|format((s % 3600) // 60) }}m off-screen{% endif %}</div>
     </div>
     <div class="card fade-up">
       <div class="card-title">Proximity Alerts

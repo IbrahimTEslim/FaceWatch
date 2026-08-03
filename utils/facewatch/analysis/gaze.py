@@ -46,6 +46,7 @@ class GazeState:
     on_screen:         bool  = False
     off_screen_sec:    float = 0.0
     alert_active:      bool  = False
+    clearing_sec:      float = 0.0
 
 
 def _offset(iris: float, near: float, far: float) -> float:
@@ -136,4 +137,5 @@ class GazeTracker:
             on_screen=looking_at_screen,
             off_screen_sec=self._off_screen_timer,
             alert_active=self._alert_active,
+            clearing_sec=max(0.0, return_sec - self._return_timer) if self._alert_active else 0.0,
         )

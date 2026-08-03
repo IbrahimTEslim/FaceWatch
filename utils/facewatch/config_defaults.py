@@ -23,6 +23,19 @@ DEFAULTS = [
     ("proximity_alert_cm",       40.0,          "float", "Distance in cm that triggers proximity alert.", "proximity"),
     ("proximity_alert_sec",      5,             "int",   "Seconds too close before alert fires.", "proximity"),
     ("proximity_clear_sec",      8,             "int",   "Seconds far enough to clear proximity alert.", "proximity"),
+    ("eye_strain_alert_sec",     300,           "int",   "Seconds continuously too close before eye strain alert fires.", "proximity"),
+    ("eye_strain_clear_sec",     30,            "int",   "Seconds at safe distance to clear eye strain alert.", "proximity"),
+
+    ("fatigue_onset_window_sec", 120,           "int",   "Window in seconds to measure PERCLOS rise for fatigue onset.", "fatigue"),
+    ("fatigue_onset_min_rise",   0.10,          "float", "Minimum PERCLOS rise within window to trigger fatigue onset.", "fatigue"),
+    ("fatigue_onset_min_session",2700,          "int",   "Minimum session seconds before fatigue onset alert can fire.", "fatigue"),
+    ("fatigue_onset_alert_sec",  10,            "int",   "Seconds condition must hold before fatigue onset alert fires.", "fatigue"),
+    ("fatigue_onset_clear_sec",  60,            "int",   "Seconds condition must clear before fatigue onset alert clears.", "fatigue"),
+
+    ("work_reminder_interval_sec", 5400,         "int",   "Seconds without a break before work reminder fires.", "wellness"),
+    ("work_reminder_break_sec",    300,          "int",   "Minimum seconds away to count as a meaningful break.", "wellness"),
+    ("work_reminder_alert_sec",    10,           "int",   "Seconds condition must hold before work reminder fires.", "wellness"),
+    ("work_reminder_clear_sec",    30,           "int",   "Seconds after break detected to clear work reminder.", "wellness"),
 
     ("expr_threshold_blink",     0.50,          "float", "Blink activation threshold.", "expressions"),
     ("expr_threshold_smile",     0.50,          "float", "Smile activation threshold.", "expressions"),

@@ -4,23 +4,25 @@ from .expressions import expressions_summary
 from .distance    import distance_summary
 from .apps        import apps_summary
 from .alerts      import alerts_summary
+from reporting.insights import build_insights
 
 
-def build_report_data(conn, face_id: int, date: str) -> dict:
+def build_report_data(conn, face_id: int, date: str, config) -> dict:
     """
     Aggregate all stats for face_id on date.
     Returns a single dict passed to templates and the JSON endpoint.
     """
     return {
-        "face_id":     face_id,
-        "date":        date,
-        "focus":       focus_summary(conn, face_id, date),
+        "face_id":       face_id,
+        "date":          date,
+        "focus":         focus_summary(conn, face_id, date),
         "focus_history": focus_history(conn, face_id),
-        "gaze":        gaze_summary(conn, face_id, date),
-        "expressions": expressions_summary(conn, face_id, date),
-        "distance":    distance_summary(conn, face_id, date),
-        "apps":        apps_summary(conn, face_id, date),
-        "alerts":      alerts_summary(conn, face_id, date),
+        "gaze":          gaze_summary(conn, face_id, date),
+        "expressions":   expressions_summary(conn, face_id, date),
+        "distance":      distance_summary(conn, face_id, date),
+        "apps":          apps_summary(conn, face_id, date),
+        "alerts":        alerts_summary(conn, face_id, date),
+        "insights":      build_insights(conn, face_id, date, config),
     }
 
 

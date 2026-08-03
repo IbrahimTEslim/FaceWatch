@@ -8,8 +8,8 @@ SCHEMA_VERSION = 3
 
 
 def now_utc() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
 class Connection:

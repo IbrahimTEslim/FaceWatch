@@ -1,7 +1,7 @@
 def gaze_summary(conn, face_id: int, date: str) -> dict:
     """Total gaze off-screen time and % of monitored session for a day."""
     row = conn.execute("""
-        SELECT SUM(gaze_off_sec)                        AS total_off,
+        SELECT SUM(MIN(gaze_off_sec, interval_sec))     AS total_off,
                SUM(interval_sec)                        AS total_monitored
         FROM stats
         WHERE face_id = ? AND date(timestamp) = ?
@@ -12,8 +12,8 @@ def gaze_summary(conn, face_id: int, date: str) -> dict:
     pct_off         = round(total_off / total_monitored * 100, 1)
 
     rows = conn.execute("""
-        SELECT strftime('%H', timestamp) AS hour,
-               SUM(gaze_off_sec)         AS off_sec
+        SELECT strftime('%H', timestamp)                    AS hour,
+               SUM(MIN(gaze_off_sec, interval_sec))         AS off_sec
         FROM stats
         WHERE face_id = ? AND date(timestamp) = ?
         GROUP BY hour ORDER BY hour
