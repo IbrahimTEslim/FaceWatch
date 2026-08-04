@@ -204,8 +204,7 @@ def run() -> None:
         last_time = now
 
         # ── Detect + Track ────────────────────────────────────────────────────
-        detector.detect(frame)
-        result = detector.latest_result
+        result = detector.detect(frame)
 
         detections = []
         if result and result.face_landmarks:
