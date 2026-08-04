@@ -5,40 +5,42 @@ from dataclasses import dataclass
 
 @dataclass
 class OverlayColors:
-    crosshair_idle:   tuple  # RGB
-    crosshair_active: tuple  # RGB
-    text:             tuple  # RGB
-    bar_bg:           tuple  # RGB
-    bar_fill:         tuple  # RGB
+    dot_idle:   tuple  # RGB — pulse phase
+    dot_active: tuple  # RGB — capture phase / tune collecting
+    text:       tuple  # RGB
+    bar_bg:     tuple  # RGB
+    bar_fill:   tuple  # RGB
 
 
-_CROSSHAIR_SIZE = 40
-_DOT_RADIUS     = 8
-_BAR_W          = 300
-_BAR_H          = 12
+_DOT_RADIUS = 18
+_ARC_RADIUS = 36
+_BAR_W      = 300
+_BAR_H      = 12
+_PULSE_MIN  = 12
+_PULSE_MAX  = 24
 
 
 def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
-    from PyQt6.QtCore import Qt, QTimer, QRect
+    import math
+    from PyQt6.QtCore import Qt, QTimer, QRect, QRectF
     from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QFont
     from PyQt6.QtWidgets import QApplication, QWidget
 
     app    = QApplication(sys.argv)
     screen = app.primaryScreen().geometry()
-    cx     = screen.width()  // 2
-    cy     = screen.height() // 2
+    sw, sh = screen.width(), screen.height()
+    cx, cy = sw // 2, sh // 2
 
     visible = False
     state: dict = {
-        "samples":     0,
-        "needed":      30,
-        "instruction": "Look straight at the center of your screen and hold still.",
-        "accepted":    False,
+        "samples": 0, "needed": 9,
+        "instruction": "", "accepted": False,
+        "dot_rx": None, "dot_ry": None,   # normalized 0-1 ratios
+        "phase_t": 0.0, "is_tune": False,
     }
-    gaze_targets:  dict = {}   # face_id -> {x, y}
-    gaze_current:  dict = {}   # face_id -> [x, y]  (smoothed)
-
-    _SMOOTH = 0.12  # lerp factor per frame (~30fps)
+    gaze_targets: dict = {}
+    gaze_current: dict = {}
+    _SMOOTH = 0.12
 
     class Window(QWidget):
         def __init__(self):
@@ -58,79 +60,95 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             if visible:
-                self._draw_background(painter)
-                self._draw_crosshair(painter)
-                self._draw_progress(painter)
-                self._draw_instruction(painter)
+                # Full black background during calibration
+                painter.setBrush(QBrush(QColor(0, 0, 0, 255)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(0, 0, sw, sh)
+                self._draw_dot(painter)
+                self._draw_info_panel(painter)
             for fid, pos in list(gaze_current.items()):
                 if fid in gaze_targets:
                     self._draw_gaze_pointer(painter, int(pos[0]), int(pos[1]))
             painter.end()
 
-        def _draw_background(self, painter: QPainter):
-            pw, ph = 500, 220
+        def _draw_dot(self, painter: QPainter):
+            rx = state.get("dot_rx")
+            ry = state.get("dot_ry")
+            if rx is None or ry is None:
+                return
+            dx       = int(rx * sw)
+            dy       = int(ry * sh)
+            accepted = state.get("accepted", False)
+            phase_t  = state.get("phase_t", 0.0)
+
+            if not accepted:
+                radius = _PULSE_MIN + int((_PULSE_MAX - _PULSE_MIN) * abs(math.sin(phase_t * math.pi * 2)))
+            else:
+                radius = _DOT_RADIUS
+
+            dot_color = colors.dot_active if accepted else colors.dot_idle
+            painter.setBrush(QBrush(QColor(*dot_color, 220)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(dx - radius, dy - radius, radius * 2, radius * 2)
+
+            if accepted and phase_t > 0.0:
+                arc_span = int(360 * (1.0 - phase_t) * 16)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(255, 255, 255, 200), 3))
+                rect = QRectF(dx - _ARC_RADIUS, dy - _ARC_RADIUS,
+                              _ARC_RADIUS * 2, _ARC_RADIUS * 2)
+                painter.drawArc(rect, 90 * 16, arc_span)
+
+        def _draw_info_panel(self, painter: QPainter):
+            samples = state.get("samples", 0)
+            needed  = state.get("needed", 1)
+            instr   = state.get("instruction", "")
+            is_tune = state.get("is_tune", False)
+            title   = "TUNE" if is_tune else "GAZE CALIBRATION"
+
+            pw, ph = 500, 160
             px = cx - pw // 2
-            py = cy - 80
-            painter.setBrush(QBrush(QColor(10, 10, 10, 180)))
-            painter.setPen(QPen(QColor(0, 220, 180, 180), 1))
+            py = sh - ph - 40
+
+            painter.setBrush(QBrush(QColor(20, 20, 20, 230)))
+            painter.setPen(QPen(QColor(0, 220, 180, 200), 1))
             painter.drawRoundedRect(px, py, pw, ph, 12, 12)
-            font = QFont("Arial", 14)
+
+            font = QFont("Arial", 13)
             font.setBold(True)
             painter.setFont(font)
             painter.setPen(QColor(0, 220, 180, 230))
-            painter.drawText(
-                QRect(px, py + 16, pw, 30),
-                Qt.AlignmentFlag.AlignCenter,
-                "GAZE CALIBRATION",
-            )
+            painter.drawText(QRect(px, py + 14, pw, 28),
+                             Qt.AlignmentFlag.AlignCenter, title)
 
-        def _draw_crosshair(self, painter: QPainter):
-            color = colors.crosshair_active if state.get("accepted") else colors.crosshair_idle
-            c = QColor(*color, 200)
-            painter.setPen(QPen(c, 2))
-            painter.drawLine(cx - _CROSSHAIR_SIZE, cy, cx + _CROSSHAIR_SIZE, cy)
-            painter.drawLine(cx, cy - _CROSSHAIR_SIZE, cx, cy + _CROSSHAIR_SIZE)
-            painter.setBrush(QBrush(QColor(*color, 220)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(cx - _DOT_RADIUS, cy - _DOT_RADIUS,
-                                _DOT_RADIUS * 2, _DOT_RADIUS * 2)
-
-        def _draw_progress(self, painter: QPainter):
-            samples = state.get("samples", 0)
-            needed  = state.get("needed", 1)
-            bx = cx - _BAR_W // 2
-            by = cy + 60
+            bx = px + 20
+            by = py + 52
+            bw = pw - 40
             painter.setBrush(QBrush(QColor(*colors.bar_bg, 160)))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(bx, by, _BAR_W, _BAR_H, 4, 4)
-            filled = int(_BAR_W * min(1.0, samples / needed))
+            painter.drawRoundedRect(bx, by, bw, _BAR_H, 4, 4)
+            filled = int(bw * min(1.0, samples / max(needed, 1)))
             if filled > 0:
                 painter.setBrush(QBrush(QColor(*colors.bar_fill, 220)))
                 painter.drawRoundedRect(bx, by, filled, _BAR_H, 4, 4)
-            font = QFont("Arial", 11)
-            painter.setFont(font)
-            painter.setPen(QColor(*colors.text, 200))
-            painter.drawText(
-                QRect(bx, by + _BAR_H + 6, _BAR_W, 20),
-                Qt.AlignmentFlag.AlignCenter,
-                f"{samples} / {needed}",
-            )
 
-        def _draw_instruction(self, painter: QPainter):
-            font = QFont("Arial", 13)
-            painter.setFont(font)
+            font2 = QFont("Arial", 11)
+            painter.setFont(font2)
+            painter.setPen(QColor(*colors.text, 200))
+            painter.drawText(QRect(bx, by + _BAR_H + 6, bw, 20),
+                             Qt.AlignmentFlag.AlignCenter, f"{samples} / {needed}")
+
+            font3 = QFont("Arial", 12)
+            painter.setFont(font3)
             painter.setPen(QColor(*colors.text, 220))
-            painter.drawText(
-                QRect(cx - 300, cy + 100, 600, 30),
-                Qt.AlignmentFlag.AlignCenter,
-                state.get("instruction", ""),
-            )
+            painter.drawText(QRect(px, py + 110, pw, 30),
+                             Qt.AlignmentFlag.AlignCenter, instr)
 
         def _draw_gaze_pointer(self, painter: QPainter, gx: int, gy: int):
+            r = 8
             painter.setBrush(QBrush(QColor(255, 80, 80, 200)))
             painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
-            painter.drawEllipse(gx - _DOT_RADIUS, gy - _DOT_RADIUS,
-                                _DOT_RADIUS * 2, _DOT_RADIUS * 2)
+            painter.drawEllipse(gx - r, gy - r, r * 2, r * 2)
 
     win = Window()
 
@@ -155,7 +173,6 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
                 visible = msg.get("visible", False)
                 if "samples" in msg:
                     state = msg
-        # Smooth all active pointers
         for fid, target in list(gaze_targets.items()):
             cur = gaze_current[fid]
             cur[0] += (target["x"] - cur[0]) * _SMOOTH
@@ -171,17 +188,12 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
 class CalibrationOverlay:
     def __init__(self):
         self._colors = OverlayColors(
-            crosshair_idle   = (160, 160, 160),
-            crosshair_active = (0,   220, 180),
-            text             = (255, 255, 255),
-            bar_bg           = (60,  60,  60),
-            bar_fill         = (0,   220, 180),
+            dot_idle   = (160, 160, 160),
+            dot_active = (0,   220, 180),
+            text       = (255, 255, 255),
+            bar_bg     = (60,  60,  60),
+            bar_fill   = (0,   220, 180),
         )
-        import tkinter
-        root = tkinter.Tk()
-        self._sw = root.winfo_screenwidth()
-        self._sh = root.winfo_screenheight()
-        root.destroy()
         self._parent_conn, self._child_conn = multiprocessing.Pipe()
         self._process: multiprocessing.Process | None = None
 
@@ -200,7 +212,9 @@ class CalibrationOverlay:
             self._process.terminate()
             self._process.join(timeout=2)
 
-    def show(self, samples: int, needed: int, instruction: str, accepted: bool) -> None:
+    def show(self, samples: int, needed: int, instruction: str, accepted: bool,
+             dot_rx: float | None = None, dot_ry: float | None = None,
+             phase_t: float = 0.0, is_tune: bool = False) -> None:
         if not (self._process and self._process.is_alive()):
             return
         try:
@@ -210,6 +224,10 @@ class CalibrationOverlay:
                 "needed":      needed,
                 "instruction": instruction,
                 "accepted":    accepted,
+                "dot_rx":      dot_rx,
+                "dot_ry":      dot_ry,
+                "phase_t":     phase_t,
+                "is_tune":     is_tune,
             })
         except Exception:
             pass
@@ -222,17 +240,14 @@ class CalibrationOverlay:
         except Exception:
             pass
 
-    def show_gaze(self, face_id: int, h: float, v: float,
-                  center_h: float, center_v: float, tolerance: float) -> None:
+    def show_gaze(self, face_id: int, sx: float, sy: float) -> None:
         if not (self._process and self._process.is_alive()):
             return
         try:
-            x = int(self._sw * (h - (center_h - tolerance)) / (2 * tolerance))
-            y = int(self._sh * (v - (center_v - tolerance)) / (2 * tolerance))
-            x = max(0, min(self._sw, x))
-            y = max(0, min(self._sh, y))
-            self._parent_conn.send({"type": "gaze", "face_id": face_id,
-                                    "visible": True, "x": x, "y": y})
+            self._parent_conn.send({
+                "type": "gaze", "face_id": face_id,
+                "visible": True, "x": int(sx), "y": int(sy),
+            })
         except Exception:
             pass
 

@@ -1,3 +1,5 @@
+import pickle
+
 from .connection import Connection, now_utc
 
 
@@ -22,20 +24,31 @@ class CalibrationQueries:
         ).fetchone()
         return row["value"] if row else None
 
-    def insert_face_gaze(self, face_id: int, center_h: float, center_v: float) -> None:
+    def save_gaze_model(self, face_id: int, model) -> None:
+        blob = pickle.dumps(model)
         with self._cx.lock:
             self._cx.conn.execute(
-                """INSERT INTO face_gaze_calibration (face_id, center_h, center_v, calibrated_at)
-                   VALUES (?, ?, ?, ?)""",
-                (face_id, center_h, center_v, now_utc()),
+                """INSERT INTO face_gaze_model (face_id, model_blob, calibrated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(face_id) DO UPDATE SET
+                       model_blob=excluded.model_blob,
+                       calibrated_at=excluded.calibrated_at""",
+                (face_id, blob, now_utc()),
             )
             self._cx.conn.commit()
 
-    def get_face_gaze(self, face_id: int) -> dict | None:
+    def load_gaze_model(self, face_id: int):
         row = self._cx.conn.execute(
-            """SELECT center_h, center_v, calibrated_at
-               FROM face_gaze_calibration WHERE face_id=?
-               ORDER BY calibrated_at DESC LIMIT 1""",
+            "SELECT model_blob, calibrated_at FROM face_gaze_model WHERE face_id=?",
             (face_id,),
         ).fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None, None
+        return pickle.loads(row["model_blob"]), row["calibrated_at"]
+
+    def delete_gaze_model(self, face_id: int) -> None:
+        with self._cx.lock:
+            self._cx.conn.execute(
+                "DELETE FROM face_gaze_model WHERE face_id=?", (face_id,)
+            )
+            self._cx.conn.commit()
