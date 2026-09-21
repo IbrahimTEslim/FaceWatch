@@ -19,6 +19,9 @@ DEFAULTS = [
 
     ("gaze_alert_sec",           10,            "int",   "Seconds off-screen before gaze alert fires.", "gaze"),
     ("gaze_return_sec",          3,             "int",   "Seconds on-screen continuously to clear gaze alert.", "gaze"),
+    ("gaze_edge_margin_px",      50,            "int",   "Pixel margin outside screen bounds still counted as on-screen.", "gaze"),
+    ("screen_w_px",              1920,          "int",   "Screen width in pixels for gaze mapping.", "gaze"),
+    ("screen_h_px",              1080,          "int",   "Screen height in pixels for gaze mapping.", "gaze"),
 
     ("proximity_alert_cm",       40.0,          "float", "Distance in cm that triggers proximity alert.", "proximity"),
     ("proximity_alert_sec",      5,             "int",   "Seconds too close before alert fires.", "proximity"),

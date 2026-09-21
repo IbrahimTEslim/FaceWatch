@@ -36,6 +36,7 @@ from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
 from calibration.store import CalibrationStore
 from calibration.wizard import FocalWizard, GazeWizard, WizardState
+from calibration.gaze_estimator import CalibrationDetector
 
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler, Action
@@ -174,6 +175,10 @@ def run() -> None:
     gaze_wizard:     GazeWizard | None            = None
     cal_input:       TextInput | None             = None
     cal_pick_mode:   bool                         = False
+    cal_detector:    CalibrationDetector | None   = None
+    cal_gaze_tid:    int | None                   = None
+    cal_gaze_rows:   int | None                   = None
+    cal_gaze_input:  TextInput | None             = None  # rows then cols
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -199,8 +204,7 @@ def run() -> None:
         last_time = now
 
         # ── Detect + Track ────────────────────────────────────────────────────
-        detector.detect(frame)
-        result = detector.latest_result
+        result = detector.detect(frame)
 
         detections = []
         if result and result.face_landmarks:
@@ -345,15 +349,12 @@ def run() -> None:
         mouse.update_tracks(tracks, identities_snap)
 
         # ── Gaze pointers ───────────────────────────────────────────────
-        from analysis.gaze import _TOLERANCE
         for tid, gs in gaze_states.items():
             ident   = identities_snap.get(tid)
             face_id = ident.face_id if ident else None
             if face_id not in _gaze_pointer_ids:
                 continue
-            center_h, center_v = calibration.get_gaze_center(face_id)
-            cal_overlay.show_gaze(face_id, gs.horizontal_ratio, gs.vertical_ratio,
-                                  center_h, center_v, _TOLERANCE)
+            cal_overlay.show_gaze(face_id, gs.screen_x, gs.screen_y)
 
         frame = renderer.draw(
             frame, tracks, identities_snap, gaze_states,
@@ -378,22 +379,50 @@ def run() -> None:
                 focal_wizard = None
                 cal_input    = None
 
+        if cal_gaze_input is not None:
+            prompt = "Grid rows (default 3):" if cal_gaze_rows is None else "Grid cols (default 3):"
+            renderer.draw_calibration_grid_input(frame, prompt, cal_gaze_input.value)
+
         if gaze_wizard is not None:
-            cal_lms = _landmarks_list(result, next(iter(mp_map.values()), -1)) if mp_map else []
-            if cal_lms:
-                wiz_state = gaze_wizard.feed(cal_lms)
-                cal_overlay.show(
-                    wiz_state.samples, wiz_state.needed,
-                    wiz_state.instruction, wiz_state.accepted,
-                )
-                if wiz_state.done:
-                    cal_overlay.hide()
-                    gaze_wizard = None
+            cal_tid = next(iter(mp_map.keys()), None)
+            cal_gs  = gaze_states.get(cal_tid) if cal_tid else None
+            sx = cal_gs.screen_x if cal_gs else 0.0
+            sy = cal_gs.screen_y if cal_gs else 0.0
+            wiz_state = gaze_wizard.feed(frame, sx, sy)
+            # After training, force GazeTracker to reload the new model
+            if gaze_wizard.model_ready and cal_tid is not None and cal_tid in gaze_map:
+                gaze_map[cal_tid].reset_model()
+            cal_overlay.show(
+                wiz_state.samples, wiz_state.needed,
+                wiz_state.instruction, wiz_state.accepted,
+                dot_rx=wiz_state.dot_rx, dot_ry=wiz_state.dot_ry,
+                phase_t=wiz_state.phase_t, is_tune=wiz_state.is_tune,
+            )
+            # Show gaze pointer automatically during tune so user can see where they're looking
+            if wiz_state.is_tune and cal_gs and cal_gs.face_present:
+                ident = identities_snap.get(cal_tid)
+                if ident and ident.face_id:
+                    cal_overlay.show_gaze(ident.face_id, sx, sy)
+            elif not wiz_state.is_tune:
+                # Hide any active gaze pointer outside tune phase
+                ident = identities_snap.get(cal_tid) if cal_tid else None
+                if ident and ident.face_id:
+                    cal_overlay.hide_gaze(ident.face_id)
+            if wiz_state.done or wiz_state.cancelled:
+                cal_overlay.hide()
+                ident = identities_snap.get(cal_tid) if cal_tid else None
+                if ident and ident.face_id:
+                    cal_overlay.hide_gaze(ident.face_id)
+                gaze_wizard = None
 
         # ── Display ─────────────────────────────────────────────────────────────────
         cv2.imshow("FaceWatch", frame)
         key    = cv2.waitKey(1) & 0xFF
         action = input_handler.handle(key)
+
+        # ESC cancels active gaze wizard
+        if key == 27 and gaze_wizard is not None:
+            gaze_wizard.cancel()
 
         # ── Input handling ───────────────────────────────────────────────────────────────
         if focal_wizard is not None and cal_input and cal_input.active and key not in (0, 255):
@@ -408,6 +437,38 @@ def run() -> None:
             elif cal_input.cancelled:
                 focal_wizard = None
                 cal_input    = None
+        elif cal_gaze_input is not None and key not in (0, 255):
+            cal_gaze_input.feed(key)
+            if cal_gaze_input.confirmed:
+                try:
+                    val = int(cal_gaze_input.value) if cal_gaze_input.value.strip() else 3
+                    val = max(1, min(val, 10))
+                except ValueError:
+                    cal_gaze_input.set_error("Enter a number (1-10).")
+                    val = None
+                if val is not None:
+                    if cal_gaze_rows is None:
+                        cal_gaze_rows  = val
+                        cal_gaze_input = TextInput("Grid cols (default 3):")
+                    else:
+                        cols = val
+                        if cal_detector is None:
+                            cal_detector = CalibrationDetector(config.get("face_landmarker_model_path"))
+                        gaze_wizard = GazeWizard(
+                            calibration, recognizer.get_identity(cal_gaze_tid).face_id,
+                            gaze_map[cal_gaze_tid]._smoother,
+                            config.get("screen_w_px"), config.get("screen_h_px"),
+                            cal_detector,
+                            rows=cal_gaze_rows, cols=cols,
+                        )
+                        cal_overlay.start()
+                        cal_gaze_input = None
+                        cal_gaze_rows  = None
+                        cal_gaze_tid   = None
+            elif cal_gaze_input.cancelled:
+                cal_gaze_input = None
+                cal_gaze_rows  = None
+                cal_gaze_tid   = None
         elif text_input and text_input.active:
             text_input.feed(key)
             if text_input.confirmed:
@@ -483,8 +544,10 @@ def run() -> None:
             elif mev.action == MouseAction.CALIBRATE_GAZE:
                 if mev.track_id is not None:
                     ident = recognizer.get_identity(mev.track_id)
-                    if ident.face_id:
-                        gaze_wizard = GazeWizard(calibration, ident.face_id)
+                    if ident.face_id and ident.status == "known" and mev.track_id in gaze_map:
+                        cal_gaze_tid   = mev.track_id
+                        cal_gaze_rows  = None
+                        cal_gaze_input = TextInput("Grid rows (default 3):")
 
             if action == Action.QUIT:
                 break
@@ -515,6 +578,8 @@ def run() -> None:
     cv2.destroyAllWindows()
     overlay.stop()
     cal_overlay.stop()
+    if cal_detector is not None:
+        cal_detector.close()
     db.log_audit("session_end", {"reason": "user_quit"})
     db.close()
 

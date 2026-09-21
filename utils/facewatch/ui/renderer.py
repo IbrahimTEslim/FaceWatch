@@ -64,6 +64,21 @@ class Renderer:
         if status == "identifying":  return self._color_identifying
         return self._color_unknown
 
+    def draw_calibration_grid_input(self, frame: np.ndarray, prompt: str, value: str) -> np.ndarray:
+        h, w = frame.shape[:2]
+        x = (w - _PANEL_W) // 2
+        y = (h - _PANEL_H) // 2
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x, y), (x + _PANEL_W, y + _PANEL_H), _CARD_BG, -1)
+        cv2.rectangle(overlay, (x, y), (x + _PANEL_W, y + _PANEL_H), _ACCENT, 1)
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+        p  = x + _CARD_PAD
+        ty = y + 28
+        ty = _put(frame, "CALIBRATION  Grid Setup", p, ty, _ACCENT, _FONT_SM)
+        ty = _put(frame, prompt, p, ty, _WHITE, _FONT_XS)
+        _put(frame, f"> {value}_", p, ty + 8, _GREEN, _FONT_SM)
+        return frame
+
     def draw_calibration_step1(self, frame: np.ndarray, state: WizardState, input_text: str) -> np.ndarray:
         h, w = frame.shape[:2]
         x = (w - _PANEL_W) // 2
@@ -222,10 +237,9 @@ class Renderer:
         if calibration and identity.face_id:
             cal_at = calibration.is_gaze_calibrated(identity.face_id)
             if cal_at:
-                date = cal_at[:10]
-                y = _put(canvas, f"Gaze cal  \u2713 {date}", p, y, _GREEN, _FONT_XS)
+                y = _put(canvas, f"Gaze cal  \u2713 {cal_at[:10]}", p, y, _GREEN, _FONT_XS)
             else:
-                y = _put(canvas, "Gaze cal  default", p, y, _GRAY, _FONT_XS)
+                y = _put(canvas, "Gaze cal  uncalibrated", p, y, _GRAY, _FONT_XS)
 
         cv2.line(canvas, (cx + 6, y), (cx + _CARD_W - 6, y), _SEP, 1)
         y += 8
