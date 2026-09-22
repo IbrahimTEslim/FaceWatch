@@ -12,6 +12,7 @@ class Action(Enum):
     FORCE_REIDENTIFY = auto()
     OPEN_SETTINGS    = auto()
     OPEN_REPORT      = auto()
+    TOGGLE_HELP      = auto()
 
 
 _KEY_MAP = {
@@ -23,6 +24,7 @@ _KEY_MAP = {
     "key_force_reidentify": Action.FORCE_REIDENTIFY,
     "key_settings":         Action.OPEN_SETTINGS,
     "key_report":           Action.OPEN_REPORT,
+    "key_help":             Action.TOGGLE_HELP,
 }
 
 

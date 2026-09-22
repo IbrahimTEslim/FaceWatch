@@ -199,6 +199,7 @@ def run() -> None:
     cal_gaze_tid:    int | None                   = None
     cal_gaze_rows:   int | None                   = None
     cal_gaze_input:  TextInput | None             = None  # rows then cols
+    show_help:       bool                         = False
 
     # ── Camera ────────────────────────────────────────────────────────────────
     cap = cv2.VideoCapture(camera_idx)
@@ -385,6 +386,9 @@ def run() -> None:
             demo_snap, calibration,
         )
         mouse.draw_menu(frame)
+        renderer.draw_watermark(frame)
+        if show_help:
+            renderer.draw_help_overlay(frame)
 
         # ── Text input overlay ────────────────────────────────────────────────
         if text_input and text_input.active:
@@ -584,6 +588,8 @@ def run() -> None:
             elif action == Action.OPEN_REPORT:
                 import webbrowser
                 webbrowser.open(f"http://localhost:{config.get('report_port')}")
+            elif action == Action.TOGGLE_HELP:
+                show_help = not show_help
             elif action == Action.CALIBRATE:
                 if len(tracks) == 1:
                     tid          = next(iter(tracks))

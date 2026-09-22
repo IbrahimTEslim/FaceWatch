@@ -37,6 +37,9 @@ _PANEL_W   = 420
 _PANEL_H   = 130
 
 
+_YELLOW  = (0, 200, 255)
+
+
 def _put(img: np.ndarray, text: str, x: int, y: int,
          color: tuple = _WHITE, scale: float = _FONT_SM) -> int:
     cv2.putText(img, text, (x, y), _FONT, scale, color, _THICK, cv2.LINE_AA)
@@ -97,6 +100,61 @@ class Renderer:
             cursor = f"> {input_text}_"
             _put(frame, cursor, p, ty + 18, _GREEN, _FONT_SM)
         return frame
+
+    def draw_watermark(self, frame: np.ndarray) -> None:
+        h = frame.shape[0]
+        cv2.putText(frame, "[H] Help", (10, h - 10), _FONT, _FONT_XS, _GRAY, _THICK, cv2.LINE_AA)
+
+    def draw_help_overlay(self, frame: np.ndarray) -> None:
+        h, w = frame.shape[:2]
+        entries = [
+            ("H",   "Toggle this help screen"),
+            ("R",   "Register face under cursor"),
+            ("C",   "Start calibration wizard"),
+            ("D",   "Toggle debug panel"),
+            ("F",   "Force re-identify unknown faces"),
+            ("S",   "Force stats write to DB"),
+            ("O",   "Open report in browser"),
+            (",",   "Open settings window"),
+            ("Q",   "Quit FaceWatch"),
+            ("",    ""),
+            ("Mouse", "Right-click a face box for options:"),
+            ("",    "  Register / Rename / Reassign / Delete"),
+            ("",    "  Calibrate distance or gaze"),
+            ("",    "  Toggle gaze pointer"),
+            ("",    ""),
+            ("ESC", "Cancel active calibration wizard"),
+        ]
+        row_h   = 22
+        pad     = 16
+        col_w   = 90
+        panel_w = 460
+        panel_h = len(entries) * row_h + pad * 2 + 30
+        x = (w - panel_w) // 2
+        y = (h - panel_h) // 2
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x, y), (x + panel_w, y + panel_h), (18, 18, 18), -1)
+        cv2.rectangle(overlay, (x, y), (x + panel_w, y + panel_h), _ACCENT, 1)
+        cv2.addWeighted(overlay, 0.88, frame, 0.12, 0, frame)
+
+        ty = y + pad + 18
+        cv2.putText(frame, "FaceWatch  Keyboard Shortcuts", (x + pad, ty),
+                    _FONT, _FONT_SM, _ACCENT, _THICK, cv2.LINE_AA)
+        ty += 6
+        cv2.line(frame, (x + pad, ty), (x + panel_w - pad, ty), _SEP, 1)
+        ty += 14
+
+        for key, desc in entries:
+            if key == "" and desc == "":
+                ty += 6
+                continue
+            if key == "Mouse":
+                cv2.putText(frame, desc, (x + pad, ty), _FONT, _FONT_XS, _ACCENT, _THICK, cv2.LINE_AA)
+            else:
+                cv2.putText(frame, key,  (x + pad, ty),           _FONT, _FONT_XS, _YELLOW, _THICK, cv2.LINE_AA)
+                cv2.putText(frame, desc, (x + pad + col_w, ty),   _FONT, _FONT_XS, _WHITE,  _THICK, cv2.LINE_AA)
+            ty += row_h
 
     def toggle_debug(self) -> None:
         self._debug = not self._debug
