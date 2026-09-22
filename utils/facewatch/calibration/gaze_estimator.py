@@ -183,44 +183,54 @@ class BlinkDetector:
         return ear < thr
 
 
-class CalibrationDetector:
+def ray_hit(face) -> tuple[float, float] | None:
+    """Intersect ptgaze gaze ray with Z=0 plane. Returns (x_cm, y_cm) or None."""
+    fc = face.center * 100.0
+    gv = face.gaze_vector
+    if abs(gv[2]) < 1e-6 or gv[2] > 0:
+        return None
+    t = -fc[2] / gv[2]
+    return (fc[0] + t * gv[0], fc[1] + t * gv[1])
+
+
+class PtgazeEstimator:
     """
-    Synchronous VIDEO-mode MediaPipe detector used only during calibration.
-    Returns landmarks immediately per frame — no callback, no threading.
-    Identical to eyetrax's _create_face_landmarker(VIDEO mode).
+    Wraps ptgaze GazeEstimator for full-frame gaze ray estimation.
+    Initialized once at engine startup; shared across all GazeTracker instances.
+    estimate(frame) returns [(face, hit), ...] for all detected faces,
+    where hit is (x_cm, y_cm) or None if the ray doesn't intersect Z=0.
     """
 
-    def __init__(self, model_path: str):
-        import mediapipe as mp
-        from mediapipe.tasks.python import vision
-        from mediapipe.tasks.python.core.base_options import BaseOptions
-
-        options = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=model_path),
-            running_mode=vision.RunningMode.VIDEO,
-            num_faces=1,
-            min_face_detection_confidence=0.5,
-            min_face_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
-            output_face_blendshapes=False,
-            output_facial_transformation_matrixes=False,
+    def __init__(self):
+        import pathlib
+        import ptgaze
+        from omegaconf import OmegaConf
+        from ptgaze.gaze_estimator import GazeEstimator
+        from ptgaze.utils import (
+            download_mpiifacegaze_model,
+            download_mediapipe_face_landmarker,
+            expanduser_all,
         )
-        self._landmarker = vision.FaceLandmarker.create_from_options(options)
-        self._last_ts_ms = 0
-        self._mp = mp
+        from ptgaze.config_schema import AppConfig
 
-    def detect(self, frame_bgr: np.ndarray) -> list:
-        """Returns landmarks list for first face, or empty list if none detected."""
-        rgb = np.ascontiguousarray(frame_bgr[:, :, ::-1])
-        mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
-        ts_ms = int(time.time() * 1000)
-        if ts_ms <= self._last_ts_ms:
-            ts_ms = self._last_ts_ms + 1
-        self._last_ts_ms = ts_ms
-        result = self._landmarker.detect_for_video(mp_image, ts_ms)
-        if not result.face_landmarks:
-            return []
-        return result.face_landmarks[0]
+        package_root = pathlib.Path(ptgaze.__file__).parent.resolve()
+        cfg = OmegaConf.load(package_root / "data/configs/mpiifacegaze.yaml")
+        cfg = OmegaConf.merge(OmegaConf.structured(AppConfig), cfg)
+        cfg.PACKAGE_ROOT = package_root.as_posix()
+        cfg.face_detector.mode = "mediapipe"
+        cfg.gaze_estimator.use_dummy_camera_params = True
+        cfg.gaze_estimator.dummy_camera_size = [640, 480]
+        cfg.gaze_estimator.checkpoint = download_mpiifacegaze_model().as_posix()
+        download_mediapipe_face_landmarker()
+        expanduser_all(cfg)
+        OmegaConf.set_readonly(cfg, True)
+        self._estimator = GazeEstimator(cfg)
 
-    def close(self) -> None:
-        self._landmarker.close()
+    def estimate(self, frame: np.ndarray) -> list[tuple]:
+        """Returns [(face, hit), ...] for all faces found in frame."""
+        faces = self._estimator.detect_faces(frame)
+        results = []
+        for face in faces:
+            self._estimator.estimate_gaze(frame, face)
+            results.append((face, ray_hit(face)))
+        return results

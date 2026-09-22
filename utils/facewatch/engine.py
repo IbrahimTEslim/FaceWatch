@@ -36,7 +36,7 @@ from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
 from calibration.store import CalibrationStore
 from calibration.wizard import FocalWizard, GazeWizard, WizardState
-from calibration.gaze_estimator import CalibrationDetector
+from calibration.gaze_estimator import PtgazeEstimator
 
 from ui.renderer import Renderer
 from ui.input_handler import InputHandler, Action
@@ -123,6 +123,26 @@ def _match_tracks_to_mp(result, tracks: dict[int, list[float]],
     return mapping
 
 
+def _match_ptgaze_to_tracks(
+    ptgaze_results: list, tracks: dict[int, list[float]],
+) -> dict[int, tuple]:
+    """Returns {track_id: (face, hit)} matched by highest IoU."""
+    if not ptgaze_results:
+        return {}
+    mapping: dict[int, tuple] = {}
+    for track_id, bbox in tracks.items():
+        best_fh, best_iou = None, 0.0
+        for face, hit in ptgaze_results:
+            # face.bbox is shape (2,2): [[x_min, y_min], [x_max, y_max]]
+            pt_bbox = [face.bbox[0][0], face.bbox[0][1], face.bbox[1][0], face.bbox[1][1]]
+            score = _iou(bbox, pt_bbox)
+            if score > best_iou:
+                best_iou = score
+                best_fh  = (face, hit)
+        if best_fh is not None and best_iou > 0.1:
+            mapping[track_id] = best_fh
+    return mapping
+
 
 def run() -> None:
     args = _parse_args()
@@ -140,6 +160,7 @@ def run() -> None:
 
     # ── Init modules ──────────────────────────────────────────────────────────
     camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
+    ptgaze_estimator = PtgazeEstimator()
     calibration   = CalibrationStore(db)
     detector      = FaceDetector(config)
     tracker       = FaceTracker()
@@ -175,7 +196,6 @@ def run() -> None:
     gaze_wizard:     GazeWizard | None            = None
     cal_input:       TextInput | None             = None
     cal_pick_mode:   bool                         = False
-    cal_detector:    CalibrationDetector | None   = None
     cal_gaze_tid:    int | None                   = None
     cal_gaze_rows:   int | None                   = None
     cal_gaze_input:  TextInput | None             = None  # rows then cols
@@ -216,7 +236,9 @@ def run() -> None:
         tracks = tracker.update(detections)
         active_track_ids = set(tracks.keys())
         frame_h = frame.shape[0]
-        mp_map  = _match_tracks_to_mp(result, tracks, frame_w, frame_h)
+        mp_map       = _match_tracks_to_mp(result, tracks, frame_w, frame_h)
+        ptgaze_results = ptgaze_estimator.estimate(frame)
+        ptgaze_map   = _match_ptgaze_to_tracks(ptgaze_results, tracks)
 
         # Clean up disappeared tracks
         for tid in list(expressions_map.keys()):
@@ -251,7 +273,8 @@ def run() -> None:
             for expr in expressions_map[track_id]:
                 expr.update(blendshapes, landmarks, config)
 
-            gaze_state = gaze_map[track_id].update(landmarks, dt, config, calibration, identity.face_id)
+            gaze_hit = ptgaze_map.get(track_id, (None, None))[1]
+            gaze_state = gaze_map[track_id].update(gaze_hit, dt, config, calibration, identity.face_id)
             gaze_states[track_id] = gaze_state
 
             face_width = demo.get_face_width(identity.face_id) if identity.face_id else DEFAULT_FACE_WIDTH_CM
@@ -288,7 +311,7 @@ def run() -> None:
                 face_width = demo.get_face_width(identity.face_id)
                 lms        = _landmarks_list(result, mp_map.get(track_id, -1))
                 dist_cm    = distance.estimate(lms, face_width, calibration.get("focal_length_px"), frame_w)
-                gaze_state = gaze_map[track_id].update([], 0.0, config, calibration, identity.face_id)
+                gaze_state = gaze_map[track_id].update(None, 0.0, config, calibration, identity.face_id)
 
                 expr_stats = {e.name: e.get_interval_stats() for e in exprs}
                 total_f    = expr_stats.get("blink_left", {}).get("total_frames", 1) or 1
@@ -388,7 +411,7 @@ def run() -> None:
             cal_gs  = gaze_states.get(cal_tid) if cal_tid else None
             sx = cal_gs.screen_x if cal_gs else 0.0
             sy = cal_gs.screen_y if cal_gs else 0.0
-            wiz_state = gaze_wizard.feed(frame, sx, sy)
+            wiz_state = gaze_wizard.feed(ptgaze_results, sx, sy)
             # After training, force GazeTracker to reload the new model
             if gaze_wizard.model_ready and cal_tid is not None and cal_tid in gaze_map:
                 gaze_map[cal_tid].reset_model()
@@ -452,13 +475,10 @@ def run() -> None:
                         cal_gaze_input = TextInput("Grid cols (default 3):")
                     else:
                         cols = val
-                        if cal_detector is None:
-                            cal_detector = CalibrationDetector(config.get("face_landmarker_model_path"))
                         gaze_wizard = GazeWizard(
                             calibration, recognizer.get_identity(cal_gaze_tid).face_id,
                             gaze_map[cal_gaze_tid]._smoother,
                             config.get("screen_w_px"), config.get("screen_h_px"),
-                            cal_detector,
                             rows=cal_gaze_rows, cols=cols,
                         )
                         cal_overlay.start()
@@ -578,8 +598,6 @@ def run() -> None:
     cv2.destroyAllWindows()
     overlay.stop()
     cal_overlay.stop()
-    if cal_detector is not None:
-        cal_detector.close()
     db.log_audit("session_end", {"reason": "user_quit"})
     db.close()
 
