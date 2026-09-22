@@ -19,7 +19,8 @@ DEFAULTS = [
 
     ("gaze_alert_sec",           10,            "int",   "Seconds off-screen before gaze alert fires.", "gaze"),
     ("gaze_return_sec",          3,             "int",   "Seconds on-screen continuously to clear gaze alert.", "gaze"),
-    ("gaze_edge_margin_px",      50,            "int",   "Pixel margin outside screen bounds still counted as on-screen.", "gaze"),
+    ("gaze_edge_margin_x_px",    100,           "int",   "Pixel margin outside screen left/right still counted as on-screen.", "gaze"),
+    ("gaze_edge_margin_y_px",    200,           "int",   "Pixel margin outside screen top/bottom still counted as on-screen.", "gaze"),
     ("screen_w_px",              1920,          "int",   "Screen width in pixels for gaze mapping.", "gaze"),
     ("screen_h_px",              1080,          "int",   "Screen height in pixels for gaze mapping.", "gaze"),
 

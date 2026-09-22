@@ -4,8 +4,9 @@ from enum import Enum, auto
 
 import numpy as np
 
+import cv2
+
 from calibration.store import CalibrationStore
-from calibration.gaze_estimator import extract_features, BlinkDetector, GazeModel, CalibrationDetector
 from calibration.smoother import GazeSmoother
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
@@ -130,22 +131,20 @@ class FocalWizard:
 class GazeWizard:
     """
     9-point calibration + Kalman tune pass, fully feed-driven.
-    Engine calls feed(frame, sx, sy) every frame.
-    Uses its own VIDEO-mode detector for synchronous, accurate landmark extraction.
-    sx/sy are current model predictions in pixels — only used during tune phase.
-    On completion, trained GazeModel saved to CalibrationStore.
+    Engine calls feed(ptgaze_results, sx, sy) every frame.
+    ptgaze_results is the output of PtgazeEstimator.estimate() — already computed by engine.
+    sx/sy are current smoothed gaze predictions in pixels — only used during tune phase.
+    On completion, fitted affine M saved to CalibrationStore.
     Smoother is tuned in-place.
     """
 
     def __init__(self, store: CalibrationStore, face_id: int,
                  smoother: GazeSmoother, sw: int, sh: int,
-                 detector: CalibrationDetector,
                  rows: int = _DEFAULT_ROWS, cols: int = _DEFAULT_COLS):
         self._store        = store
         self._face_id      = face_id
         self._smoother     = smoother
         self._sw, self._sh = sw, sh
-        self._detector     = detector
 
         self._pts      = _grid_points(sw, sh, rows, cols)
         self._tune_pts = _tune_points(sw, sh)
@@ -153,10 +152,10 @@ class GazeWizard:
         self._phase    = _Phase.INTRO
         self._phase_start = time.monotonic()
 
-        self._feats: list[np.ndarray]  = []
-        self._targs: list[list[float]] = []
-        self._model: GazeModel | None  = None
-        self._blink  = BlinkDetector()
+        self._raw_pts: list[np.ndarray]    = []  # ray_hit medians
+        self._scr_pts: list[list[float]]   = []  # screen pixel targets
+        self._dot_samples: list[tuple]     = []  # ray_hit samples for current dot
+        self._affine_M: np.ndarray | None  = None
         self._cancelled = False
         self._model_ready = False  # True for one frame after training completes
 
@@ -184,157 +183,159 @@ class GazeWizard:
     def _ry(self, y: int) -> float:
         return y / self._sh
 
-    def feed(self, frame: np.ndarray,
+    def feed(self, ptgaze_results: list,
              sx: float = 0.0, sy: float = 0.0) -> WizardState:
-        now     = time.monotonic()
-        elapsed = now - self._phase_start
-
         if self._cancelled:
             return WizardState(
                 samples=0, needed=len(self._pts),
                 instruction="Calibration cancelled.",
                 accepted=False, done=False, cancelled=True,
             )
-
-        # Detect landmarks synchronously via VIDEO mode
-        landmarks = self._detector.detect(frame)
-
-        # ── INTRO ─────────────────────────────────────────────────────────────
-        if self._phase == _Phase.INTRO:
-            if elapsed >= _INTRO_SEC:
-                self._phase = _Phase.WAITING
-                self._phase_start = now
-            return WizardState(
-                samples=0, needed=len(self._pts),
-                instruction="9-point gaze calibration. Look at each dot as it appears and hold still.",
-                accepted=False, done=False,
-            )
-
-        # ── WAITING ───────────────────────────────────────────────────────────
-        if self._phase == _Phase.WAITING:
-            if bool(landmarks) and not self._blink.is_blinking(landmarks):
-                self._phase = _Phase.PULSE
-                self._phase_start = now
-            return WizardState(
-                samples=0, needed=len(self._pts),
-                instruction="Look at the screen and hold still...",
-                accepted=False, done=False,
-            )
-
-        # ── PULSE ─────────────────────────────────────────────────────────────
-        if self._phase == _Phase.PULSE:
-            x, y = self._pts[self._pt_idx]
-            if elapsed >= _PULSE_SEC:
-                self._phase = _Phase.CAPTURE
-                self._phase_start = now
-            return WizardState(
-                samples=self._pt_idx, needed=len(self._pts),
-                instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — look at the dot",
-                accepted=False, done=False,
-                dot_rx=self._rx(x), dot_ry=self._ry(y),
-                phase_t=min(elapsed / _PULSE_SEC, 1.0),
-            )
-
-        # ── CAPTURE ───────────────────────────────────────────────────────────
-        if self._phase == _Phase.CAPTURE:
-            x, y = self._pts[self._pt_idx]
-            if landmarks and not self._blink.is_blinking(landmarks):
-                feats, _ = extract_features(landmarks)
-                if feats is not None:
-                    self._feats.append(feats)
-                    self._targs.append([float(x), float(y)])
-            if elapsed >= _CAPTURE_SEC:
-                self._pt_idx += 1
-                self._phase = _Phase.PULSE if self._pt_idx < len(self._pts) else _Phase.TRAINING
-                self._phase_start = now
-            return WizardState(
-                samples=self._pt_idx, needed=len(self._pts),
-                instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — hold still",
-                accepted=True, done=False,
-                dot_rx=self._rx(x), dot_ry=self._ry(y),
-                phase_t=min(elapsed / _CAPTURE_SEC, 1.0),
-            )
-
-        # ── TRAINING ──────────────────────────────────────────────────────────
-        if self._phase == _Phase.TRAINING:
-            if self._feats:
-                self._model = GazeModel()
-                self._model.train(np.array(self._feats), np.array(self._targs))
-                self._store.save_gaze_model(self._face_id, self._model)
-            # Invalidate GazeTracker model cache so it reloads the new model next frame
-            self._model_ready = True
-            self._phase = _Phase.TUNE_PULSE
-            self._phase_start = now
-            self._tune_idx = 0
-            return WizardState(
-                samples=len(self._pts), needed=len(self._pts),
-                instruction="Calibrated! Now fine-tuning...",
-                accepted=False, done=False,
-            )
-
-        # ── TUNE PULSE ────────────────────────────────────────────────────────
-        if self._phase == _Phase.TUNE_PULSE:
-            x, y = self._tune_pts[self._tune_idx]
-            if elapsed >= _PULSE_SEC:
-                self._phase = _Phase.TUNE_CAPTURE
-                self._phase_start = now
-                self._tune_start      = None
-                self._tune_collecting = False
-                self._tune_col_start  = None
-                self._tune_gaze       = []
-            return WizardState(
-                samples=self._tune_idx, needed=len(self._tune_pts),
-                instruction=f"Tune point {self._tune_idx + 1} of {len(self._tune_pts)} — look at the dot",
-                accepted=False, done=False,
-                dot_rx=self._rx(x), dot_ry=self._ry(y),
-                phase_t=min(elapsed / _PULSE_SEC, 1.0),
-                is_tune=True,
-            )
-
-        # ── TUNE CAPTURE ──────────────────────────────────────────────────────
-        if self._phase == _Phase.TUNE_CAPTURE:
-            x, y = self._tune_pts[self._tune_idx]
-            prox = self._sw * _TUNE_PROXIMITY_RATIO
-            near = (sx - x) ** 2 + (sy - y) ** 2 <= prox ** 2
-
-            if near:
-                if self._tune_start is None:
-                    self._tune_start = now
-                if not self._tune_collecting and now - self._tune_start >= _TUNE_INITIAL_DELAY:
-                    self._tune_collecting = True
-                    self._tune_col_start  = now
-                if self._tune_collecting:
-                    self._tune_gaze.append([sx, sy])
-                    if now - self._tune_col_start >= _TUNE_COLLECT_SEC:
-                        self._all_tune_gaze.extend(self._tune_gaze)
-                        self._tune_idx += 1
-                        if self._tune_idx >= len(self._tune_pts):
-                            self._finish_tune()
-                            self._phase = _Phase.DONE
-                        else:
-                            self._phase = _Phase.TUNE_PULSE
-                        self._phase_start = now
-            else:
-                self._tune_start      = None
-                self._tune_collecting = False
-                self._tune_col_start  = None
-                self._tune_gaze       = []
-
-            return WizardState(
-                samples=self._tune_idx, needed=len(self._tune_pts),
-                instruction=f"Tune point {self._tune_idx + 1} of {len(self._tune_pts)} — look at the dot",
-                accepted=self._tune_collecting, done=False,
-                dot_rx=self._rx(x), dot_ry=self._ry(y),
-                phase_t=min((now - self._tune_col_start) / _TUNE_COLLECT_SEC, 1.0)
-                        if self._tune_collecting else 0.0,
-                is_tune=True,
-            )
-
-        # ── DONE ──────────────────────────────────────────────────────────────
+        now     = time.monotonic()
+        elapsed = now - self._phase_start
+        if self._phase == _Phase.INTRO:        return self._phase_intro(now, elapsed)
+        if self._phase == _Phase.WAITING:      return self._phase_waiting(now, ptgaze_results)
+        if self._phase == _Phase.PULSE:        return self._phase_pulse(now, elapsed)
+        if self._phase == _Phase.CAPTURE:      return self._phase_capture(now, elapsed, ptgaze_results)
+        if self._phase == _Phase.TRAINING:     return self._phase_training(now)
+        if self._phase == _Phase.TUNE_PULSE:   return self._phase_tune_pulse(now, elapsed)
+        if self._phase == _Phase.TUNE_CAPTURE: return self._phase_tune_capture(now, sx, sy)
         return WizardState(
             samples=len(self._pts), needed=len(self._pts),
             instruction="Gaze calibration complete.",
             accepted=False, done=True,
+        )
+
+    def _phase_intro(self, now: float, elapsed: float) -> WizardState:
+        if elapsed >= _INTRO_SEC:
+            self._phase = _Phase.WAITING
+            self._phase_start = now
+        return WizardState(
+            samples=0, needed=len(self._pts),
+            instruction="9-point gaze calibration. Look at each dot as it appears and hold still.",
+            accepted=False, done=False,
+        )
+
+    def _phase_waiting(self, now: float, ptgaze_results: list) -> WizardState:
+        if ptgaze_results:
+            self._phase = _Phase.PULSE
+            self._phase_start = now
+        return WizardState(
+            samples=0, needed=len(self._pts),
+            instruction="Look at the screen and hold still...",
+            accepted=False, done=False,
+        )
+
+    def _phase_pulse(self, now: float, elapsed: float) -> WizardState:
+        x, y = self._pts[self._pt_idx]
+        if elapsed >= _PULSE_SEC:
+            self._phase = _Phase.CAPTURE
+            self._phase_start = now
+        return WizardState(
+            samples=self._pt_idx, needed=len(self._pts),
+            instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — look at the dot",
+            accepted=False, done=False,
+            dot_rx=self._rx(x), dot_ry=self._ry(y),
+            phase_t=min(elapsed / _PULSE_SEC, 1.0),
+        )
+
+    def _phase_capture(self, now: float, elapsed: float, ptgaze_results: list) -> WizardState:
+        x, y = self._pts[self._pt_idx]
+        for _, hit in ptgaze_results:
+            if hit is not None:
+                self._dot_samples.append(hit)
+        if elapsed >= _CAPTURE_SEC:
+            if len(self._dot_samples) >= 5:
+                med = np.median(self._dot_samples, axis=0)
+                self._raw_pts.append(med)
+                self._scr_pts.append([float(x), float(y)])
+            self._dot_samples = []
+            self._pt_idx += 1
+            self._phase = _Phase.PULSE if self._pt_idx < len(self._pts) else _Phase.TRAINING
+            self._phase_start = now
+        return WizardState(
+            samples=self._pt_idx, needed=len(self._pts),
+            instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — hold still",
+            accepted=True, done=False,
+            dot_rx=self._rx(x), dot_ry=self._ry(y),
+            phase_t=min(elapsed / _CAPTURE_SEC, 1.0),
+        )
+
+    def _phase_training(self, now: float) -> WizardState:
+        if len(self._raw_pts) >= 4:
+            raw_arr = np.array(self._raw_pts, dtype=np.float32)
+            scr_arr = np.array(self._scr_pts, dtype=np.float32)
+            M, _ = cv2.estimateAffine2D(
+                raw_arr, scr_arr,
+                method=cv2.RANSAC,
+                ransacReprojThreshold=3.0,
+                maxIters=2000,
+            )
+            if M is not None:
+                self._affine_M = M
+                self._store.save_gaze_model(self._face_id, M)
+        self._model_ready = True
+        self._phase = _Phase.TUNE_PULSE
+        self._phase_start = now
+        self._tune_idx = 0
+        return WizardState(
+            samples=len(self._pts), needed=len(self._pts),
+            instruction="Calibrated! Now fine-tuning...",
+            accepted=False, done=False,
+        )
+
+    def _phase_tune_pulse(self, now: float, elapsed: float) -> WizardState:
+        x, y = self._tune_pts[self._tune_idx]
+        if elapsed >= _PULSE_SEC:
+            self._phase = _Phase.TUNE_CAPTURE
+            self._phase_start = now
+            self._tune_start      = None
+            self._tune_collecting = False
+            self._tune_col_start  = None
+            self._tune_gaze       = []
+        return WizardState(
+            samples=self._tune_idx, needed=len(self._tune_pts),
+            instruction=f"Tune point {self._tune_idx + 1} of {len(self._tune_pts)} — look at the dot",
+            accepted=False, done=False,
+            dot_rx=self._rx(x), dot_ry=self._ry(y),
+            phase_t=min(elapsed / _PULSE_SEC, 1.0),
+            is_tune=True,
+        )
+
+    def _phase_tune_capture(self, now: float, sx: float, sy: float) -> WizardState:
+        x, y = self._tune_pts[self._tune_idx]
+        prox = self._sw * _TUNE_PROXIMITY_RATIO
+        near = (sx - x) ** 2 + (sy - y) ** 2 <= prox ** 2
+        if near:
+            if self._tune_start is None:
+                self._tune_start = now
+            if not self._tune_collecting and now - self._tune_start >= _TUNE_INITIAL_DELAY:
+                self._tune_collecting = True
+                self._tune_col_start  = now
+            if self._tune_collecting:
+                self._tune_gaze.append([sx, sy])
+                if now - self._tune_col_start >= _TUNE_COLLECT_SEC:
+                    self._all_tune_gaze.extend(self._tune_gaze)
+                    self._tune_idx += 1
+                    if self._tune_idx >= len(self._tune_pts):
+                        self._finish_tune()
+                        self._phase = _Phase.DONE
+                    else:
+                        self._phase = _Phase.TUNE_PULSE
+                    self._phase_start = now
+        else:
+            self._tune_start      = None
+            self._tune_collecting = False
+            self._tune_col_start  = None
+            self._tune_gaze       = []
+        return WizardState(
+            samples=self._tune_idx, needed=len(self._tune_pts),
+            instruction=f"Tune point {self._tune_idx + 1} of {len(self._tune_pts)} — look at the dot",
+            accepted=self._tune_collecting, done=False,
+            dot_rx=self._rx(x), dot_ry=self._ry(y),
+            phase_t=min((now - self._tune_col_start) / _TUNE_COLLECT_SEC, 1.0)
+                    if self._tune_collecting else 0.0,
+            is_tune=True,
         )
 
     def _finish_tune(self) -> None:

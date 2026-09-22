@@ -1,8 +1,8 @@
+import numpy as np
 from dataclasses import dataclass
 
 from storage.config_store import ConfigStore
 from calibration.store import CalibrationStore
-from calibration.gaze_estimator import extract_features, BlinkDetector
 from calibration.smoother import GazeSmoother
 
 
@@ -31,20 +31,20 @@ class GazeTracker:
         self._off_screen_timer: float = 0.0
         self._return_timer:     float = 0.0
         self._alert_active:     bool  = False
-        self._model                   = None
-        self._model_face_id:    int | None = None
-        self._blink_detector          = BlinkDetector()
+        self._affine_M                = None  # 2x3 numpy array
+        self._affine_face_id: int | None = None
         self._smoother                = GazeSmoother()
 
     def reset_model(self) -> None:
-        """Force model reload on next frame."""
-        self._model = None
-        self._model_face_id = None
+        """Force affine matrix reload on next frame."""
+        self._affine_M = None
+        self._affine_face_id = None
 
-    def update(self, landmarks: list, dt: float, config: ConfigStore,
+    def update(self, hit: tuple[float, float] | None, dt: float, config: ConfigStore,
                calibration: CalibrationStore | None = None,
                face_id: int | None = None) -> GazeState:
-        if not landmarks:
+        """hit is (x_cm, y_cm) from ray_hit(), already computed by engine."""
+        if face_id is None:
             return GazeState(
                 face_present=False,
                 alert_active=self._alert_active,
@@ -53,26 +53,17 @@ class GazeTracker:
 
         alert_sec:  float = config.get("gaze_alert_sec")
         return_sec: float = config.get("gaze_return_sec")
-        margin_px:  float = config.get("gaze_edge_margin_px")
+        margin_x:   int   = config.get("gaze_edge_margin_x_px")
+        margin_y:   int   = config.get("gaze_edge_margin_y_px")
         sw:         int   = config.get("screen_w_px")
         sh:         int   = config.get("screen_h_px")
 
-        if face_id != self._model_face_id:
-            self._model = calibration.load_gaze_model(face_id) if (calibration and face_id is not None) else None
-            self._model_face_id = face_id
+        if face_id != self._affine_face_id:
+            loaded = calibration.load_gaze_model(face_id) if calibration else None
+            self._affine_M = loaded if isinstance(loaded, np.ndarray) and loaded.shape == (2, 3) else None
+            self._affine_face_id = face_id
 
-        if self._blink_detector.is_blinking(landmarks):
-            return GazeState(
-                face_present=True,
-                direction="unknown",
-                on_screen=self._alert_active is False,
-                off_screen_sec=self._off_screen_timer,
-                alert_active=self._alert_active,
-            )
-
-        features, _ = extract_features(landmarks)
-
-        if self._model is None or features is None:
+        if self._affine_M is None or hit is None:
             return GazeState(
                 face_present=True,
                 direction="unknown",
@@ -81,12 +72,12 @@ class GazeTracker:
                 alert_active=self._alert_active,
             )
 
-        raw_sx, raw_sy = self._model.predict(features)
-        sx, sy         = self._smoother.step(raw_sx, raw_sy)
+        uv = self._affine_M @ np.array([hit[0], hit[1], 1.0], dtype=np.float64)
+        sx, sy = self._smoother.step(float(uv[0]), float(uv[1]))
 
         looking_at_screen = (
-            -margin_px <= sx <= sw + margin_px and
-            -margin_px <= sy <= sh + margin_px
+            -margin_x <= sx <= sw + margin_x and
+            -margin_y <= sy <= sh + margin_y
         )
         direction = _direction(sx, sy, sw, sh)
 
