@@ -1,6 +1,21 @@
-# FaceWatch
+<div align="center">
 
-**Real-time face awareness for your desktop. Runs entirely on your machine — no cloud, no data leaves your device.**
+# 👁 FaceWatch
+
+### Real-time face awareness for your desktop
+
+**Knows who you are. Knows where you're looking. Knows when you're tired.**
+
+*Runs entirely on your machine — no cloud, no data leaves your device.*
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#)
+[![License](https://img.shields.io/badge/License-MIT-green)](#)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen)](#privacy)
+
+</div>
+
+---
 
 FaceWatch watches your webcam, recognizes who's in front of it, tracks their expressions and gaze, measures their distance from the screen, and logs everything to a local SQLite database. At the end of the day it generates a styled HTML report and sends a desktop notification with a link to open it.
 
@@ -154,6 +169,20 @@ utils/facewatch/
 ├── config_defaults.py
 └── engine.py       main loop
 ```
+
+---
+
+## Documentation
+
+Detailed technical documentation lives in the [`docs/`](docs/) directory:
+
+| Document | Contents |
+|---|---|
+| [Architecture](docs/01_architecture.md) | Module layout, data flow, threading model, extensibility rules |
+| [Math & Algorithms](docs/02_math_and_algorithms.md) | Distance formula, gaze ray math, PERCLOS, focus score, embedding search |
+| [Database](docs/03_database.md) | Full SQLite schema, query groups, migrations |
+| [Configuration Reference](docs/04_configuration.md) | Every config key with defaults and descriptions |
+| [Developer Guide](docs/05_developer_guide.md) | Adding expressions/alerts, using modules as a library, HTTP API |
 
 ---
 
