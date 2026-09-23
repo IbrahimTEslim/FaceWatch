@@ -81,4 +81,5 @@ DEFAULTS = [
     ("key_force_reidentify",  "f", "str", "Key to force re-identify unknown faces.",   "keys"),
     ("key_settings",           ",", "str", "Key to open settings window.",              "keys"),
     ("key_report",             "o", "str", "Key to open report in browser.",            "keys"),
+    ("key_help",               "h", "str", "Key to toggle help overlay.",               "keys"),
 ]
