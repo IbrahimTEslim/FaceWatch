@@ -6,7 +6,7 @@ def build_alert_context(
     expressions:    list,
     session_start:  float,
     last_absent:    float | None,
-    gaze_on_screen: bool,
+    gaze_on_screen: bool | None,
     dist_cm:        float,
     config:         ConfigStore,
     now:            float,

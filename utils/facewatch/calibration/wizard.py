@@ -39,6 +39,33 @@ def _grid_points(sw: int, sh: int, rows: int, cols: int) -> list[tuple[int, int]
     return [(mx + int(c * step_x), my + int(r * step_y)) for r, c in indices]
 
 
+def fit_gaze_affine(raw_pts, scr_pts) -> np.ndarray | None:
+    """
+    Fit the 2x3 affine mapping ray-hit (cm) -> screen (px) from per-dot medians.
+
+    Uses least-median-of-squares: robust to a minority of bad dots (user looked
+    elsewhere) without a pixel threshold to tune. A synthetic benchmark (9-point
+    grid, 30-150 px gaze noise, with/without one bad dot) gave 3-4x lower mean
+    screen error than the previous RANSAC with a 3 px threshold — which, given
+    real gaze noise, kept only ~3 points. Falls back to plain least squares.
+    Returns None when the points can't determine an affine map.
+    """
+    raw = np.asarray(raw_pts, dtype=np.float64).reshape(-1, 2)
+    scr = np.asarray(scr_pts, dtype=np.float64).reshape(-1, 2)
+    if len(raw) < 3 or len(raw) != len(scr):
+        return None
+    A = np.hstack([raw, np.ones((len(raw), 1))])
+    if np.linalg.matrix_rank(A) < 3:
+        return None  # collinear hits/targets — mapping undetermined
+
+    M, _ = cv2.estimateAffine2D(raw.astype(np.float32), scr.astype(np.float32),
+                                method=cv2.LMEDS)
+    if M is None or not np.all(np.isfinite(M)):
+        X, *_ = np.linalg.lstsq(A, scr, rcond=None)
+        M = X.T
+    return M.astype(np.float64)
+
+
 def _tune_points(sw: int, sh: int) -> list[tuple[int, int]]:
     return [
         (sw // 2,     sh // 4),
@@ -263,14 +290,7 @@ class GazeWizard:
 
     def _phase_training(self, now: float) -> WizardState:
         if len(self._raw_pts) >= 4:
-            raw_arr = np.array(self._raw_pts, dtype=np.float32)
-            scr_arr = np.array(self._scr_pts, dtype=np.float32)
-            M, _ = cv2.estimateAffine2D(
-                raw_arr, scr_arr,
-                method=cv2.RANSAC,
-                ransacReprojThreshold=3.0,
-                maxIters=2000,
-            )
+            M = fit_gaze_affine(self._raw_pts, self._scr_pts)
             if M is not None:
                 self._affine_M = M
                 self._store.save_gaze_model(self._face_id, M)

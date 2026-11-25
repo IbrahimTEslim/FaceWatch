@@ -31,7 +31,7 @@ ALERT_LOGGABLE = frozenset({AlertStatus.FIRED, AlertStatus.CLEARED})
 
 @dataclass
 class AlertContext:
-    gaze_on_screen: bool
+    gaze_on_screen: bool | None  # None = gaze unknown (uncalibrated / no estimate)
     dist_cm:        float
     config:         ConfigStore
     perclos:        float = 0.0
@@ -69,8 +69,11 @@ class Alert(ABC):
     def priority(self) -> AlertPriority: ...
 
     @abstractmethod
-    def is_condition_met(self, ctx: AlertContext) -> bool:
-        """Return True when the alert condition is currently active."""
+    def is_condition_met(self, ctx: AlertContext) -> bool | None:
+        """
+        True when the alert condition is currently active, False when not.
+        None when it cannot be evaluated this frame: timers are held as-is.
+        """
 
     @property
     @abstractmethod
@@ -86,7 +89,10 @@ class Alert(ABC):
     def active(self) -> bool:
         return self._active
 
-    def update(self, condition: bool, dt: float, config: ConfigStore) -> AlertEvent:
+    def update(self, condition: bool | None, dt: float, config: ConfigStore) -> AlertEvent:
+        if condition is None:
+            return AlertEvent(AlertStatus.NONE, "")
+
         enter_sec: float = config.get(self.enter_sec_key)
         exit_sec:  float = config.get(self.exit_sec_key)
 

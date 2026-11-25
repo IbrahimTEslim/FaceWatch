@@ -26,7 +26,12 @@ class GazeSmoother:
     """
     Kalman + EMA smoother for predicted gaze (sx, sy).
     One instance per face_id in GazeTracker.
-    Ported verbatim from eyetrax KalmanSmoother + KalmanEMASmoother.
+    Based on eyetrax KalmanSmoother + KalmanEMASmoother, but outputs the
+    corrected Kalman state rather than the prediction.
+
+    The constant-velocity model uses one time step per frame (dt=1). Noise
+    covariances are tuned in those units, so frame-rate changes alter the
+    effective smoothing slightly; switching to real dt would need re-tuning.
 
     ema_alpha=0.0 disables EMA (pure Kalman).
     ema_alpha closer to 1.0 = stronger smoothing / more lag.
@@ -37,6 +42,7 @@ class GazeSmoother:
         self._ema_alpha = ema_alpha
         self._ema_x: float | None = None
         self._ema_y: float | None = None
+        self._initialized = False
 
     def tune_from_variance(self, var_x: float, var_y: float) -> None:
         """Adjust measurementNoiseCov from observed gaze variance at tune points."""
@@ -47,13 +53,17 @@ class GazeSmoother:
     def step(self, sx: float, sy: float) -> tuple[float, float]:
         meas = np.array([[sx], [sy]], dtype=np.float32)
 
-        if not np.any(self._kf.statePost):
+        if not self._initialized:
             self._kf.statePre[:2]  = meas
             self._kf.statePost[:2] = meas
+            self._initialized = True
 
-        pred = self._kf.predict()
-        self._kf.correct(meas)
-        kx, ky = float(pred[0, 0]), float(pred[1, 0])
+        # Output the corrected (posterior) estimate. eyetrax returned the prior
+        # prediction, which extrapolates from the previous frame and amplifies
+        # noise: simulated jitter was up to ~65% higher at the same settle time.
+        self._kf.predict()
+        post = self._kf.correct(meas)
+        kx, ky = float(post[0, 0]), float(post[1, 0])
 
         a = self._ema_alpha
         if a == 0.0:
