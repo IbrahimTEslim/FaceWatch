@@ -1,5 +1,6 @@
 import multiprocessing
 import sys
+import time
 from dataclasses import dataclass
 
 
@@ -30,6 +31,7 @@ def _run_calibration_overlay(conn, colors: OverlayColors) -> None:
     screen = app.primaryScreen().geometry()
     sw, sh = screen.width(), screen.height()
     cx, cy = sw // 2, sh // 2
+    conn.send({"type": "screen", "w": sw, "h": sh})
 
     visible = False
     state: dict = {
@@ -196,6 +198,30 @@ class CalibrationOverlay:
         )
         self._parent_conn, self._child_conn = multiprocessing.Pipe()
         self._process: multiprocessing.Process | None = None
+        self._screen_size: tuple[int, int] | None = None
+
+    def screen_size(self, timeout: float = 30.0) -> tuple[int, int] | None:
+        """
+        Primary screen (w, h) in the overlay's drawing pixels, as reported by the
+        overlay process once Qt is up. Blocks up to `timeout` on the first call;
+        cached afterwards. None if the overlay never reported.
+        """
+        if self._screen_size is not None:
+            return self._screen_size
+        if not (self._process and self._process.is_alive()):
+            return None
+        deadline = time.monotonic() + timeout
+        try:
+            while (remaining := deadline - time.monotonic()) > 0:
+                if not self._parent_conn.poll(remaining):
+                    break
+                msg = self._parent_conn.recv()
+                if isinstance(msg, dict) and msg.get("type") == "screen":
+                    self._screen_size = (int(msg["w"]), int(msg["h"]))
+                    break
+        except (EOFError, OSError):
+            pass
+        return self._screen_size
 
     def start(self) -> None:
         if self._process and self._process.is_alive():
