@@ -67,6 +67,29 @@ def _seed_config(db: Database) -> None:
         db.seed_config(key, str(value), type_, description, category)
 
 
+def _open_camera(camera_idx: int) -> tuple[cv2.VideoCapture, int, int]:
+    """
+    Open the webcam and return (cap, frame_w, frame_h). The size is taken from
+    an actual frame — some backends report 0 for CAP_PROP_* before the first read.
+    Exits if the camera can't be opened.
+    """
+    cap = cv2.VideoCapture(camera_idx)
+    if not cap.isOpened():
+        print(f"[ERROR] Cannot open camera {camera_idx}")
+        sys.exit(1)
+    for _ in range(10):
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            h, w = frame.shape[:2]
+            return cap, w, h
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if w <= 0 or h <= 0:
+        print(f"[ERROR] Camera {camera_idx} returned no frames")
+        sys.exit(1)
+    return cap, w, h
+
+
 def _crop(frame: np.ndarray, bbox: list[float]) -> np.ndarray:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -164,9 +187,14 @@ def run() -> None:
     cal_overlay = CalibrationOverlay()
     cal_overlay.start()
 
+    # ── Camera ────────────────────────────────────────────────────────────────
+    # Opened before the gaze estimator: ptgaze's camera model needs the real
+    # frame size (focal length and principal point are derived from it).
+    camera_idx = args.camera if args.camera is not None else config.get("camera_index")
+    cap, frame_w, frame_h = _open_camera(camera_idx)
+
     # ── Init modules ──────────────────────────────────────────────────────────
-    camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
-    ptgaze_estimator = PtgazeEstimator()
+    ptgaze_estimator = PtgazeEstimator(frame_w, frame_h)
     calibration   = CalibrationStore(db)
     detector      = FaceDetector(config)
     tracker       = FaceTracker()
@@ -206,13 +234,6 @@ def run() -> None:
     cal_gaze_input:  TextInput | None             = None  # rows then cols
     show_help:       bool                         = False
 
-    # ── Camera ────────────────────────────────────────────────────────────────
-    cap = cv2.VideoCapture(camera_idx)
-    if not cap.isOpened():
-        print(f"[ERROR] Cannot open camera {camera_idx}")
-        sys.exit(1)
-
-    frame_w         = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     last_stats_time = time.time()
     last_time       = time.time()
 
