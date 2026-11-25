@@ -59,6 +59,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--refresh-demographics", type=str, metavar="NAME", default=None)
     parser.add_argument("--reset-config", action="store_true")
     parser.add_argument("--port",      type=int,  default=None)
+    parser.add_argument("--db",        type=str,  default="facewatch.db", metavar="PATH",
+                        help="SQLite database file (default: facewatch.db)")
     return parser.parse_args()
 
 
@@ -172,7 +174,8 @@ def run() -> None:
     args = _parse_args()
 
     # ── Init storage ──────────────────────────────────────────────────────────
-    db     = Database("facewatch.db")
+    db_path = args.db
+    db      = Database(db_path)
     _seed_config(db)
     config = ConfigStore(db)
 
@@ -209,7 +212,7 @@ def run() -> None:
     overlay.start()
     screen_w, screen_h = detect_screen_size(cal_overlay)
     reporter = Reporter(
-        db_path="facewatch.db",
+        db_path=db_path,
         port=config.get("report_port"),
         report_times=config.get("report_times"),
     )
@@ -615,7 +618,7 @@ def run() -> None:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
-                open_settings("facewatch.db", quit_key=config.get("key_quit"))
+                open_settings(db_path, quit_key=config.get("key_quit"))
             elif action == Action.OPEN_REPORT:
                 import webbrowser
                 webbrowser.open(f"http://localhost:{config.get('report_port')}")

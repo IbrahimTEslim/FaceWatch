@@ -4,7 +4,7 @@ import threading
 
 import numpy as np
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def now_utc() -> str:
@@ -150,6 +150,13 @@ class Connection:
                     "DELETE FROM config WHERE key IN ('screen_w_px', 'screen_h_px')"
                 )
                 self.conn.execute("PRAGMA user_version = 5")
+                self.conn.commit()
+        if version < 6:
+            # db_path lived inside the DB it named, so it could never take
+            # effect; the path is now the --db CLI flag.
+            with self.lock:
+                self.conn.execute("DELETE FROM config WHERE key = 'db_path'")
+                self.conn.execute("PRAGMA user_version = 6")
                 self.conn.commit()
 
     @staticmethod

@@ -38,7 +38,6 @@ def test_config_store_get(db):
     assert config.get("stats_interval_sec") == 5
     assert config.get("recognition_threshold") == 0.60
     assert config.get("report_times") == ["18:00", "21:00"]
-    assert config.get("db_path") == "facewatch.db"
     print("  [OK] ConfigStore.get() type casting works")
 
 
