@@ -9,6 +9,10 @@ from calibration.smoother import GazeSmoother
 @dataclass
 class GazeState:
     face_present:   bool  = False
+    # True only when this frame produced a calibrated screen estimate.
+    # When False, screen_x/screen_y/on_screen/direction carry no information:
+    # the face is uncalibrated or no gaze ray was available this frame.
+    tracking:       bool  = False
     screen_x:       float = 0.0
     screen_y:       float = 0.0
     direction:      str   = "unknown"
@@ -16,6 +20,11 @@ class GazeState:
     off_screen_sec: float = 0.0
     alert_active:   bool  = False
     clearing_sec:   float = 0.0
+
+    @property
+    def on_screen_or_unknown(self) -> bool | None:
+        """on_screen when tracking, else None (gaze unknown)."""
+        return self.on_screen if self.tracking else None
 
 
 def _direction(sx: float, sy: float, sw: int, sh: int) -> str:
@@ -27,7 +36,7 @@ def _direction(sx: float, sy: float, sw: int, sh: int) -> str:
 
 
 class GazeTracker:
-    def __init__(self, screen_w: int, screen_h: int):
+    def __init__(self, screen_w: int, screen_h: int, smoother: GazeSmoother | None = None):
         """screen_w/screen_h: primary screen size in overlay pixels (see ui.screen)."""
         self._sw, self._sh = screen_w, screen_h
         self._off_screen_timer: float = 0.0
@@ -35,7 +44,7 @@ class GazeTracker:
         self._alert_active:     bool  = False
         self._affine_M                = None  # 2x3 numpy array
         self._affine_face_id: int | None = None
-        self._smoother                = GazeSmoother()
+        self._smoother                = smoother if smoother is not None else GazeSmoother()
 
     def reset_model(self) -> None:
         """Force affine matrix reload on next frame."""
@@ -45,7 +54,11 @@ class GazeTracker:
     def update(self, hit: tuple[float, float] | None, dt: float, config: ConfigStore,
                calibration: CalibrationStore | None = None,
                face_id: int | None = None) -> GazeState:
-        """hit is (x_cm, y_cm) from ray_hit(), already computed by engine."""
+        """
+        hit is (x_cm, y_cm) from ray_hit(), already computed by engine.
+        Frames without a usable estimate (no face_id, no calibration, no hit)
+        leave all timers untouched — unknown gaze is neither on nor off screen.
+        """
         if face_id is None:
             return GazeState(
                 face_present=False,
@@ -103,6 +116,7 @@ class GazeTracker:
 
         return GazeState(
             face_present=True,
+            tracking=True,
             screen_x=sx,
             screen_y=sy,
             direction=direction,

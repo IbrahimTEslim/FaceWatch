@@ -289,7 +289,7 @@ class Renderer:
 
         # ── Gaze ──────────────────────────────────────────────────────────────
         if gaze:
-            gaze_color = _GREEN if gaze.on_screen else _RED
+            gaze_color = (_GREEN if gaze.on_screen else _RED) if gaze.tracking else _GRAY
             y = _put(canvas, f"Gaze   {gaze.direction}  ({gaze.off_screen_sec:.1f}s off)", p, y, gaze_color, _FONT_SM)
 
         if calibration and identity.face_id:

@@ -8,7 +8,9 @@ class GazeAlert(Alert):
     priority           = AlertPriority.MEDIUM
     notification_title = "FaceWatch — Gaze Alert"
 
-    def is_condition_met(self, ctx: AlertContext) -> bool:
+    def is_condition_met(self, ctx: AlertContext) -> bool | None:
+        if ctx.gaze_on_screen is None:
+            return None  # uncalibrated or no estimate — not evidence of looking away
         return not ctx.gaze_on_screen
 
     def _fired_message(self) -> str:

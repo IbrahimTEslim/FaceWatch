@@ -291,7 +291,7 @@ def run() -> None:
                 expressions=expressions_map[track_id],
                 session_start=_session_start.get(track_id, now),
                 last_absent=_last_absent.get(track_id, None),
-                gaze_on_screen=gaze_state.on_screen,
+                gaze_on_screen=gaze_state.on_screen_or_unknown,
                 dist_cm=dist_cm,
                 config=config,
                 now=now,
