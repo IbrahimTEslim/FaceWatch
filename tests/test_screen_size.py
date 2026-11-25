@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils", "facew
 
 from analysis.gaze import GazeTracker
 from storage.db import Database
+from storage.db.connection import SCHEMA_VERSION
 from ui import screen
 from ui.calibration_overlay import CalibrationOverlay
 
@@ -169,7 +170,7 @@ def test_migration_removes_screen_keys():
             assert db.get_config("screen_h_px") is None
             assert db.get_config("gaze_alert_sec") == "10"
             version = db._cx.conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 5, version
+            assert version == SCHEMA_VERSION, version
         finally:
             db.close()
     print("  [OK] migration 5 drops screen_w_px/screen_h_px, keeps other config")

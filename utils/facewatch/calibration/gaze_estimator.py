@@ -201,7 +201,12 @@ class PtgazeEstimator:
     where hit is (x_cm, y_cm) or None if the ray doesn't intersect Z=0.
     """
 
-    def __init__(self):
+    def __init__(self, frame_w: int, frame_h: int):
+        """
+        frame_w/frame_h: actual camera frame size. ptgaze's dummy camera model
+        uses focal = frame_w and principal point = frame centre, so a wrong size
+        skews head pose and the gaze ray.
+        """
         import pathlib
         import ptgaze
         from omegaconf import OmegaConf
@@ -219,7 +224,7 @@ class PtgazeEstimator:
         cfg.PACKAGE_ROOT = package_root.as_posix()
         cfg.face_detector.mode = "mediapipe"
         cfg.gaze_estimator.use_dummy_camera_params = True
-        cfg.gaze_estimator.dummy_camera_size = [640, 480]
+        cfg.gaze_estimator.dummy_camera_size = [int(frame_w), int(frame_h)]
         cfg.gaze_estimator.checkpoint = download_mpiifacegaze_model().as_posix()
         download_mediapipe_face_landmarker()
         expanduser_all(cfg)

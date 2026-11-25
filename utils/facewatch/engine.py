@@ -59,12 +59,37 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--refresh-demographics", type=str, metavar="NAME", default=None)
     parser.add_argument("--reset-config", action="store_true")
     parser.add_argument("--port",      type=int,  default=None)
+    parser.add_argument("--db",        type=str,  default="facewatch.db", metavar="PATH",
+                        help="SQLite database file (default: facewatch.db)")
     return parser.parse_args()
 
 
 def _seed_config(db: Database) -> None:
     for key, value, type_, description, category in DEFAULTS:
         db.seed_config(key, str(value), type_, description, category)
+
+
+def _open_camera(camera_idx: int) -> tuple[cv2.VideoCapture, int, int]:
+    """
+    Open the webcam and return (cap, frame_w, frame_h). The size is taken from
+    an actual frame — some backends report 0 for CAP_PROP_* before the first read.
+    Exits if the camera can't be opened.
+    """
+    cap = cv2.VideoCapture(camera_idx)
+    if not cap.isOpened():
+        print(f"[ERROR] Cannot open camera {camera_idx}")
+        sys.exit(1)
+    for _ in range(10):
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            h, w = frame.shape[:2]
+            return cap, w, h
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if w <= 0 or h <= 0:
+        print(f"[ERROR] Camera {camera_idx} returned no frames")
+        sys.exit(1)
+    return cap, w, h
 
 
 def _crop(frame: np.ndarray, bbox: list[float]) -> np.ndarray:
@@ -149,7 +174,8 @@ def run() -> None:
     args = _parse_args()
 
     # ── Init storage ──────────────────────────────────────────────────────────
-    db     = Database("facewatch.db")
+    db_path = args.db
+    db      = Database(db_path)
     _seed_config(db)
     config = ConfigStore(db)
 
@@ -164,9 +190,14 @@ def run() -> None:
     cal_overlay = CalibrationOverlay()
     cal_overlay.start()
 
+    # ── Camera ────────────────────────────────────────────────────────────────
+    # Opened before the gaze estimator: ptgaze's camera model needs the real
+    # frame size (focal length and principal point are derived from it).
+    camera_idx = args.camera if args.camera is not None else config.get("camera_index")
+    cap, frame_w, frame_h = _open_camera(camera_idx)
+
     # ── Init modules ──────────────────────────────────────────────────────────
-    camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
-    ptgaze_estimator = PtgazeEstimator()
+    ptgaze_estimator = PtgazeEstimator(frame_w, frame_h)
     calibration   = CalibrationStore(db)
     detector      = FaceDetector(config)
     tracker       = FaceTracker()
@@ -180,9 +211,10 @@ def run() -> None:
     overlay     = AlertOverlay(config)
     overlay.start()
     screen_w, screen_h = detect_screen_size(cal_overlay)
+    report_port = args.port if args.port is not None else config.get("report_port")
     reporter = Reporter(
-        db_path="facewatch.db",
-        port=config.get("report_port"),
+        db_path=db_path,
+        port=report_port,
         report_times=config.get("report_times"),
     )
     reporter.start()
@@ -206,13 +238,6 @@ def run() -> None:
     cal_gaze_input:  TextInput | None             = None  # rows then cols
     show_help:       bool                         = False
 
-    # ── Camera ────────────────────────────────────────────────────────────────
-    cap = cv2.VideoCapture(camera_idx)
-    if not cap.isOpened():
-        print(f"[ERROR] Cannot open camera {camera_idx}")
-        sys.exit(1)
-
-    frame_w         = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     last_stats_time = time.time()
     last_time       = time.time()
 
@@ -594,10 +619,10 @@ def run() -> None:
                     if recognizer.get_identity(tid).status != "known":
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
-                open_settings("facewatch.db", quit_key=config.get("key_quit"))
+                open_settings(db_path, quit_key=config.get("key_quit"))
             elif action == Action.OPEN_REPORT:
                 import webbrowser
-                webbrowser.open(f"http://localhost:{config.get('report_port')}")
+                webbrowser.open(f"http://localhost:{report_port}")
             elif action == Action.TOGGLE_HELP:
                 show_help = not show_help
             elif action == Action.CALIBRATE:

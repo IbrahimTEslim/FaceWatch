@@ -18,9 +18,10 @@ Edit config via the settings window (`,` key) or directly in the DB.
 
 | Key | Default | Description |
 |---|---|---|
-| `db_path` | `facewatch.db` | SQLite database file path. |
 | `max_embeddings_per_face` | `10` | Max embedding vectors per face. More = better accuracy, more memory. |
 | `stats_interval_sec` | `5` | Seconds between stats writes. Lower = more granular data, more I/O. |
+
+The database file itself is chosen with `python main.py --db PATH` (default `facewatch.db`; relative paths resolve against the FaceWatch folder). The old `db_path` config key could never take effect — it was stored inside the database it named — and is removed by DB migration 6.
 
 ## Recognition
 

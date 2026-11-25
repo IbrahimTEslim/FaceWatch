@@ -6,7 +6,6 @@ DEFAULTS = [
     ("face_landmarker_model_path", "models/face_landmarker.task", "str",   "Path to MediaPipe FaceLandmarker .task model file.", "models"),
     ("max_faces",                  10,                            "int",   "Maximum number of faces to detect simultaneously.", "models"),
 
-    ("db_path",                  "facewatch.db","str",   "Path to SQLite database file.", "storage"),
     ("max_embeddings_per_face",  10,            "int",   "Max embeddings stored per face.", "storage"),
     ("stats_interval_sec",       5,             "int",   "Seconds between stats writes to DB.", "storage"),
 

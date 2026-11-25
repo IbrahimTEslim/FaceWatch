@@ -104,6 +104,7 @@ When an unknown face appears, a bounding box is drawn around it labeled `pending
 python main.py                              # normal launch
 python main.py --camera 1                  # use second webcam
 python main.py --port 9000                 # report server on port 9000
+python main.py --db other.db               # use a different database file
 python main.py --calibrate                 # force calibration wizard on launch
 python main.py --refresh-demographics NAME # force re-run demographics for one face
 python main.py --reset-config              # reset all settings to defaults
