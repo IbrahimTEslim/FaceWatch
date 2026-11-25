@@ -27,7 +27,9 @@ def _direction(sx: float, sy: float, sw: int, sh: int) -> str:
 
 
 class GazeTracker:
-    def __init__(self):
+    def __init__(self, screen_w: int, screen_h: int):
+        """screen_w/screen_h: primary screen size in overlay pixels (see ui.screen)."""
+        self._sw, self._sh = screen_w, screen_h
         self._off_screen_timer: float = 0.0
         self._return_timer:     float = 0.0
         self._alert_active:     bool  = False
@@ -55,8 +57,7 @@ class GazeTracker:
         return_sec: float = config.get("gaze_return_sec")
         margin_x:   int   = config.get("gaze_edge_margin_x_px")
         margin_y:   int   = config.get("gaze_edge_margin_y_px")
-        sw:         int   = config.get("screen_w_px")
-        sh:         int   = config.get("screen_h_px")
+        sw, sh = self._sw, self._sh
 
         if face_id != self._affine_face_id:
             loaded = calibration.load_gaze_model(face_id) if calibration else None

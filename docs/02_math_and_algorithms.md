@@ -192,6 +192,8 @@ looking_at_screen = (
 )
 ```
 
+`screen_w` / `screen_h` are the primary screen's logical (DPI-scaled) size, detected at startup — the same pixel space the calibration overlay draws dots and the gaze pointer in. On a 1920×1200 display at 125% scaling this is 1536×960.
+
 Margins (default 100px horizontal, 200px vertical) prevent false off-screen triggers at screen edges.
 
 The hysteresis state machine:

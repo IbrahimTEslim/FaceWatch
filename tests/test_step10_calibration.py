@@ -162,7 +162,7 @@ def test_wizard_done_state():
 
 def test_gaze_uses_calibrated_center():
     """Shift calibrated center far enough that the same landmarks flip on_screen."""
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     # Use landmarks that produce a "left" direction with default center (0.50)
     lms = _make_landmarks(iris_x=0.5, iris_y=0.5)
     state_default = tracker.update(lms, 0.033, _config(), calibration=None)
@@ -172,7 +172,7 @@ def test_gaze_uses_calibrated_center():
     v = state_default.vertical_ratio
     db, _ = _db({"gaze_center_h": h, "gaze_center_v": v})
     store = CalibrationStore(db)
-    tracker2 = GazeTracker()
+    tracker2 = GazeTracker(1920, 1080)
     state_cal = tracker2.update(lms, 0.033, _config(), calibration=store)
     assert state_cal.on_screen
     print(f"  [OK] Calibrated center h={h:.3f} v={v:.3f}: same landmarks -> on_screen=True")
@@ -180,7 +180,7 @@ def test_gaze_uses_calibrated_center():
 
 def test_gaze_fallback_without_calibration():
     """Without calibration, defaults to 0.50 center."""
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     lms = _make_landmarks(iris_x=0.5, iris_y=0.5)
     state = tracker.update(lms, 0.033, _config(), calibration=None)
     assert state.on_screen

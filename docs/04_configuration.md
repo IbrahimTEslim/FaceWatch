@@ -41,8 +41,8 @@ Edit config via the settings window (`,` key) or directly in the DB.
 | `gaze_return_sec` | `3` | Seconds on-screen continuously to clear gaze alert. |
 | `gaze_edge_margin_x_px` | `100` | Pixel margin outside screen left/right still counted as on-screen. |
 | `gaze_edge_margin_y_px` | `200` | Pixel margin outside screen top/bottom still counted as on-screen. |
-| `screen_w_px` | `1920` | Screen width in pixels for gaze mapping. |
-| `screen_h_px` | `1080` | Screen height in pixels for gaze mapping. |
+
+Screen size is not configurable: it is detected at startup from the primary screen's logical (DPI-scaled) geometry, reported by the calibration overlay process with a tkinter fallback. See `ui/screen.py`. The `screen_w_px` / `screen_h_px` keys from earlier versions are removed by DB migration 5.
 
 ## Proximity
 

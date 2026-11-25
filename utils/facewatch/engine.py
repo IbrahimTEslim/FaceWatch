@@ -44,6 +44,7 @@ from ui.text_input import TextInput
 from ui.mouse_handler import MouseHandler, MouseAction
 from ui.alert_overlay import AlertOverlay
 from ui.calibration_overlay import CalibrationOverlay
+from ui.screen import detect_screen_size
 from ui.settings import open_settings
 from reporting import Reporter
 
@@ -158,6 +159,11 @@ def run() -> None:
 
     ensure_models(config.get("face_landmarker_model_path"))
 
+    # Start the calibration overlay first: its Qt process boots in parallel with
+    # model loading below, then reports the screen size gaze is measured in.
+    cal_overlay = CalibrationOverlay()
+    cal_overlay.start()
+
     # ── Init modules ──────────────────────────────────────────────────────────
     camera_idx  = args.camera if args.camera is not None else config.get("camera_index")
     ptgaze_estimator = PtgazeEstimator()
@@ -173,8 +179,7 @@ def run() -> None:
     mouse         = MouseHandler()
     overlay     = AlertOverlay(config)
     overlay.start()
-    cal_overlay = CalibrationOverlay()
-    cal_overlay.start()
+    screen_w, screen_h = detect_screen_size(cal_overlay)
     reporter = Reporter(
         db_path="facewatch.db",
         port=config.get("report_port"),
@@ -257,7 +262,7 @@ def run() -> None:
             # Init per-track state on first sight
             if track_id not in expressions_map:
                 expressions_map[track_id] = build_expressions()
-                gaze_map[track_id]        = GazeTracker()
+                gaze_map[track_id]        = GazeTracker(screen_w, screen_h)
                 _session_start[track_id]  = now
 
             crop = _crop(frame, bbox)
@@ -482,7 +487,7 @@ def run() -> None:
                         gaze_wizard = GazeWizard(
                             calibration, recognizer.get_identity(cal_gaze_tid).face_id,
                             gaze_map[cal_gaze_tid]._smoother,
-                            config.get("screen_w_px"), config.get("screen_h_px"),
+                            screen_w, screen_h,
                             rows=cal_gaze_rows, cols=cols,
                         )
                         cal_overlay.start()

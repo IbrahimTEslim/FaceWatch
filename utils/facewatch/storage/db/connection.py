@@ -4,7 +4,7 @@ import threading
 
 import numpy as np
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def now_utc() -> str:
@@ -140,7 +140,16 @@ class Connection:
                     )"""
                 )
                 self.conn.execute("DROP TABLE IF EXISTS face_gaze_calibration")
-                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                self.conn.execute("PRAGMA user_version = 4")
+                self.conn.commit()
+        if version < 5:
+            # Screen size is now detected at runtime (ui/screen.py); drop the
+            # old hard-coded keys so they no longer appear in Settings.
+            with self.lock:
+                self.conn.execute(
+                    "DELETE FROM config WHERE key IN ('screen_w_px', 'screen_h_px')"
+                )
+                self.conn.execute("PRAGMA user_version = 5")
                 self.conn.commit()
 
     @staticmethod

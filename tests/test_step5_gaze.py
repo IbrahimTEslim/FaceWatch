@@ -66,7 +66,7 @@ def _make_landmarks(direction: str) -> list:
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 def test_no_face_returns_unknown():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     state = tracker.update([], 0.033, _config())
     assert not state.face_present
     assert state.direction == "unknown"
@@ -75,7 +75,7 @@ def test_no_face_returns_unknown():
 
 
 def test_center_gaze_on_screen():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     state = tracker.update(_make_landmarks("center"), 0.033, _config())
     assert state.face_present
     assert state.direction == "center"
@@ -84,7 +84,7 @@ def test_center_gaze_on_screen():
 
 
 def test_left_gaze_off_screen():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     state = tracker.update(_make_landmarks("left"), 0.033, _config())
     assert state.direction == "left"
     assert not state.on_screen
@@ -92,7 +92,7 @@ def test_left_gaze_off_screen():
 
 
 def test_off_screen_timer_increments():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=10.0)
     for _ in range(5):
         state = tracker.update(_make_landmarks("left"), 1.0, cfg)
@@ -102,7 +102,7 @@ def test_off_screen_timer_increments():
 
 
 def test_alert_fires_after_threshold():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=3.0)
     for _ in range(4):
         state = tracker.update(_make_landmarks("left"), 1.0, cfg)
@@ -111,7 +111,7 @@ def test_alert_fires_after_threshold():
 
 
 def test_timer_decrements_on_return():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=10.0)
     # Build up 4s off-screen
     for _ in range(4):
@@ -125,7 +125,7 @@ def test_timer_decrements_on_return():
 
 
 def test_brief_glance_back_resets_return_timer():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=3.0, return_sec=3.0)
     # Trigger alert
     for _ in range(4):
@@ -143,7 +143,7 @@ def test_brief_glance_back_resets_return_timer():
 
 
 def test_alert_clears_after_return_sec():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=3.0, return_sec=3.0)
     # Trigger alert
     for _ in range(4):
@@ -157,7 +157,7 @@ def test_alert_clears_after_return_sec():
 
 
 def test_off_screen_keeps_incrementing_during_alert():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=3.0, return_sec=10.0)
     # Trigger alert
     for _ in range(4):
@@ -171,7 +171,7 @@ def test_off_screen_keeps_incrementing_during_alert():
 
 
 def test_no_face_preserves_alert_state():
-    tracker = GazeTracker()
+    tracker = GazeTracker(1920, 1080)
     cfg = _config(alert_sec=3.0)
     # Trigger alert
     for _ in range(4):
