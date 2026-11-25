@@ -479,9 +479,9 @@ def run() -> None:
             if cal_gaze_input.confirmed:
                 try:
                     val = int(cal_gaze_input.value) if cal_gaze_input.value.strip() else 3
-                    val = max(1, min(val, 10))
+                    val = max(2, min(val, 10))  # 1 row/col = collinear targets, no 2-D fit
                 except ValueError:
-                    cal_gaze_input.set_error("Enter a number (1-10).")
+                    cal_gaze_input.set_error("Enter a number (2-10).")
                     val = None
                 if val is not None:
                     if cal_gaze_rows is None:
