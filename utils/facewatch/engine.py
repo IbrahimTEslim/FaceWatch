@@ -211,9 +211,10 @@ def run() -> None:
     overlay     = AlertOverlay(config)
     overlay.start()
     screen_w, screen_h = detect_screen_size(cal_overlay)
+    report_port = args.port if args.port is not None else config.get("report_port")
     reporter = Reporter(
         db_path=db_path,
-        port=config.get("report_port"),
+        port=report_port,
         report_times=config.get("report_times"),
     )
     reporter.start()
@@ -621,7 +622,7 @@ def run() -> None:
                 open_settings(db_path, quit_key=config.get("key_quit"))
             elif action == Action.OPEN_REPORT:
                 import webbrowser
-                webbrowser.open(f"http://localhost:{config.get('report_port')}")
+                webbrowser.open(f"http://localhost:{report_port}")
             elif action == Action.TOGGLE_HELP:
                 show_help = not show_help
             elif action == Action.CALIBRATE:

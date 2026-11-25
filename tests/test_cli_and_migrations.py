@@ -68,11 +68,27 @@ def test_cli_db_flag():
     print("  [OK] --db defaults to facewatch.db and accepts a path")
 
 
+def test_port_flag_is_used():
+    """--port used to be parsed but ignored; both report server and 'open report' must use it."""
+    import inspect
+    import engine
+    src = inspect.getsource(engine.run)
+    assert 'report_port = args.port if args.port is not None else config.get("report_port")' in src
+    assert "port=report_port" in src
+    assert 'f"http://localhost:{report_port}"' in src
+    assert 'config.get("report_port")' not in src.replace(
+        'args.port if args.port is not None else config.get("report_port")', "")
+    with patch.object(sys, "argv", ["main.py", "--port", "9000"]):
+        assert engine._parse_args().port == 9000
+    print("  [OK] --port is wired to the report server and the open-report key")
+
+
 TESTS = [
     test_migration_6_removes_db_path,
     test_fresh_db_reaches_schema_version,
     test_removed_keys_not_in_defaults,
     test_cli_db_flag,
+    test_port_flag_is_used,
 ]
 
 
