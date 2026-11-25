@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "utils", "facew
 
 from unittest.mock import MagicMock, patch
 from demographics.face_width import estimate_face_width_cm
-from demographics.analyzer import DemographicsAnalyzer, _DEFAULT_FACE_WIDTH_CM
+from demographics.analyzer import DemographicsAnalyzer
+from demographics.face_width import DEFAULT_FACE_WIDTH_CM as _DEFAULT_FACE_WIDTH_CM
 from analysis.distance import DistanceEstimator
 
 

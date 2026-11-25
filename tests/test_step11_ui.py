@@ -20,13 +20,8 @@ from analysis.gaze import GazeState
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _config(**overrides):
-    defaults = {
-        "key_quit": "q", "key_register": "r", "key_calibrate": "c",
-        "key_debug": "d", "key_force_stats": "s", "key_force_reidentify": "f",
-        "box_color_known": "0,220,0",
-        "box_color_identifying": "220,220,0",
-        "box_color_unknown": "0,165,255",
-    }
+    from config_defaults import DEFAULTS
+    defaults = {key: value for key, value, *_ in DEFAULTS}  # stays in sync with new keys
     defaults.update(overrides)
     cfg = MagicMock()
     cfg.get.side_effect = lambda k: defaults[k]

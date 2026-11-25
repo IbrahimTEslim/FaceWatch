@@ -154,9 +154,10 @@ def test_proximity_alert_fires():
 def test_registry_builds_both_alerts():
     alerts = build_alerts()
     types = [type(a).__name__ for a in alerts]
-    assert "GazeAlert" in types
-    assert "ProximityAlert" in types
-    assert len(alerts) == 2
+    expected = {"GazeAlert", "ProximityAlert", "EyeStrainAlert",
+                "FatigueOnsetAlert", "WorkReminderAlert"}
+    assert set(types) == expected, types
+    assert len(alerts) == len(expected)
     print(f"  [OK] Registry builds {len(alerts)} alerts: {types}")
 
 
