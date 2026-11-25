@@ -42,9 +42,19 @@ class GazeTracker:
         self._off_screen_timer: float = 0.0
         self._return_timer:     float = 0.0
         self._alert_active:     bool  = False
+        self._interval_off_sec: float = 0.0   # tracked off-screen time since last pop
         self._affine_M                = None  # 2x3 numpy array
         self._affine_face_id: int | None = None
         self._smoother                = smoother if smoother is not None else GazeSmoother()
+
+    def pop_interval_off_sec(self) -> float:
+        """
+        Seconds of tracked off-screen gaze since the previous call, then reset.
+        Used for the per-interval stats row and Focus Score. Unlike the alert
+        timer (off_screen_sec), this never decays while looking back.
+        """
+        value, self._interval_off_sec = self._interval_off_sec, 0.0
+        return value
 
     def reset_model(self) -> None:
         """Force affine matrix reload on next frame."""
@@ -94,6 +104,9 @@ class GazeTracker:
             -margin_y <= sy <= sh + margin_y
         )
         direction = _direction(sx, sy, sw, sh)
+
+        if not looking_at_screen:
+            self._interval_off_sec += dt
 
         if not self._alert_active:
             if looking_at_screen:

@@ -155,6 +155,34 @@ def test_unknown_frames_preserve_alert_state():
     print("  [OK] Unknown frames hold alert state and timer")
 
 
+# ── Per-interval off-screen seconds ──────────────────────────────────────────
+
+def test_interval_off_sec_counts_only_off_screen_time():
+    t, cfg = _tracker(), _config(alert_sec=100.0)
+    _feed(t, LEFT, 1.0, cfg, n=3)
+    _feed(t, CENTER, 1.0, cfg, n=4)   # would decay the alert timer, not this
+    _feed(t, LEFT, 0.5, cfg, n=2)
+    assert t.pop_interval_off_sec() == 4.0
+    print("  [OK] interval off-screen seconds = actual off-screen time (4.0s)")
+
+
+def test_interval_off_sec_resets_on_pop():
+    t, cfg = _tracker(), _config()
+    _feed(t, LEFT, 1.0, cfg, n=2)
+    t.pop_interval_off_sec()
+    _feed(t, CENTER, 1.0, cfg, n=2)
+    assert t.pop_interval_off_sec() == 0.0
+    print("  [OK] interval off-screen seconds reset after pop")
+
+
+def test_interval_off_sec_ignores_unknown():
+    t, cfg = _tracker(), _config()
+    _feed(t, None, 1.0, cfg, n=5)
+    _feed(t, CENTER, 1.0, cfg, cal=_uncalibrated(), n=5)
+    assert t.pop_interval_off_sec() == 0.0
+    print("  [OK] unknown gaze does not count as off-screen time")
+
+
 # ── GazeAlert with unknown gaze ──────────────────────────────────────────────
 
 def _ctx(on_screen, cfg):
@@ -206,6 +234,9 @@ TESTS = [
     test_brief_glance_back_resets_return_timer,
     test_alert_clears_after_return_sec,
     test_unknown_frames_preserve_alert_state,
+    test_interval_off_sec_counts_only_off_screen_time,
+    test_interval_off_sec_resets_on_pop,
+    test_interval_off_sec_ignores_unknown,
     test_gaze_alert_never_fires_while_unknown,
     test_gaze_alert_holds_timer_across_unknown,
     test_gaze_alert_on_screen_still_resets,

@@ -306,6 +306,11 @@ def run() -> None:
         if now - last_stats_time >= interval_sec:
             app, title = get_active_app()
             track_list = list(tracks.keys())
+            # Pop for every track (known or not) so each interval starts from zero.
+            gaze_off_interval = {
+                tid: min(gaze_map[tid].pop_interval_off_sec(), float(interval_sec))
+                for tid in track_list if tid in gaze_map
+            }
             for track_id in track_list:
                 identity = recognizer.get_identity(track_id)
                 if identity.status != "known" or identity.face_id is None:
@@ -317,7 +322,7 @@ def run() -> None:
                 face_width = demo.get_face_width(identity.face_id)
                 lms        = _landmarks_list(result, mp_map.get(track_id, -1))
                 dist_cm    = distance.estimate(lms, face_width, calibration.get("focal_length_px"), frame_w)
-                gaze_state = gaze_map[track_id].update(None, 0.0, config, calibration, identity.face_id)
+                gaze_off   = gaze_off_interval.get(track_id, 0.0)
 
                 expr_stats = {e.name: e.get_interval_stats() for e in exprs}
                 total_f    = expr_stats.get("blink_left", {}).get("total_frames", 1) or 1
@@ -326,7 +331,7 @@ def run() -> None:
                 drowsy_pct = drowsy_f / total_f
 
                 focus = compute_focus_score(
-                    gaze_off_sec=gaze_map[track_id]._off_screen_timer,
+                    gaze_off_sec=gaze_off,
                     interval_sec=interval_sec,
                     drowsy_pct=drowsy_pct,
                     angry_count=expr_stats.get("angry",     {}).get("count", 0),
@@ -348,7 +353,7 @@ def run() -> None:
                     "neutral_pct":         round(neutral_f  / total_f * 100, 1),
                     "drowsy_pct":          round(drowsy_pct * 100, 1),
                     "distance_cm":         dist_cm,
-                    "gaze_off_sec":        gaze_state.off_screen_sec,
+                    "gaze_off_sec":        round(gaze_off, 2),
                     "proximity_alerts":    proximity_alerts,
                     "focus_score":         focus,
                     "active_app":          app,
