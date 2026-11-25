@@ -620,6 +620,7 @@ def run() -> None:
                         recognizer.force_reidentify(tid)
             elif action == Action.OPEN_SETTINGS:
                 open_settings(db_path, quit_key=config.get("key_quit"))
+                config.reload()  # dialog writes the DB directly; refresh the cache
             elif action == Action.OPEN_REPORT:
                 import webbrowser
                 webbrowser.open(f"http://localhost:{report_port}")

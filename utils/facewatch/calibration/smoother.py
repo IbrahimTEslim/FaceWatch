@@ -37,12 +37,24 @@ class GazeSmoother:
     ema_alpha closer to 1.0 = stronger smoothing / more lag.
     """
 
+    MAX_EMA_ALPHA = 0.95  # 1.0 would freeze the output
+
     def __init__(self, ema_alpha: float = 0.25):
         self._kf        = _make_kalman()
-        self._ema_alpha = ema_alpha
+        self._ema_alpha = 0.0
+        self.ema_alpha  = ema_alpha
         self._ema_x: float | None = None
         self._ema_y: float | None = None
         self._initialized = False
+
+    @property
+    def ema_alpha(self) -> float:
+        return self._ema_alpha
+
+    @ema_alpha.setter
+    def ema_alpha(self, value: float) -> None:
+        """Clamped to [0, MAX_EMA_ALPHA]. Takes effect on the next step()."""
+        self._ema_alpha = min(max(float(value), 0.0), self.MAX_EMA_ALPHA)
 
     def tune_from_variance(self, var_x: float, var_y: float) -> None:
         """Adjust measurementNoiseCov from observed gaze variance at tune points."""

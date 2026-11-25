@@ -40,6 +40,7 @@ def _gaze_config():
     cfg.get.side_effect = lambda k: {
         "gaze_alert_sec": 10, "gaze_return_sec": 3,
         "gaze_edge_margin_x_px": 0, "gaze_edge_margin_y_px": 0,
+        "gaze_smoothing": 0.25,
     }[k]
     return cfg
 

@@ -40,6 +40,7 @@ def _config(alert_sec=10.0, return_sec=3.0):
         "gaze_edge_margin_x_px": 0,
         "gaze_edge_margin_y_px": 0,
         "notifications_enabled": False,
+        "gaze_smoothing": 0.25,
     }[k]
     return cfg
 

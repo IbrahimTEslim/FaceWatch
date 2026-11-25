@@ -97,6 +97,7 @@ class GazeTracker:
             )
 
         uv = self._affine_M @ np.array([hit[0], hit[1], 1.0], dtype=np.float64)
+        self._smoother.ema_alpha = config.get("gaze_smoothing")
         sx, sy = self._smoother.step(float(uv[0]), float(uv[1]))
 
         looking_at_screen = (
