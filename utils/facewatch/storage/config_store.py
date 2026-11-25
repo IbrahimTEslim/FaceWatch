@@ -10,6 +10,10 @@ class ConfigStore:
         self._cache: dict[str, str] = {}
         self._load_cache()
 
+    def reload(self) -> None:
+        """Re-read all values from the DB (e.g. after the settings dialog wrote them)."""
+        self._load_cache()
+
     def _load_cache(self) -> None:
         for key, default, type_, *_ in DEFAULTS:
             raw = self._db.get_config(key)

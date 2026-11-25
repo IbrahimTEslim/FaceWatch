@@ -83,12 +83,37 @@ def test_port_flag_is_used():
     print("  [OK] --port is wired to the report server and the open-report key")
 
 
+def test_config_reload_sees_settings_dialog_writes():
+    """The settings dialog writes through its own sqlite connection."""
+    from storage.config_store import ConfigStore
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "cfg.db")
+        db = Database(path)
+        try:
+            for key, value, type_, desc, cat in DEFAULTS:
+                db.seed_config(key, str(value), type_, desc, cat)
+            config = ConfigStore(db)
+            assert config.get("gaze_alert_sec") == 10
+
+            other = sqlite3.connect(path, isolation_level=None)
+            other.execute("UPDATE config SET value='25' WHERE key='gaze_alert_sec'")
+            other.close()
+
+            assert config.get("gaze_alert_sec") == 10  # cached until reload
+            config.reload()
+            assert config.get("gaze_alert_sec") == 25
+        finally:
+            db.close()
+    print("  [OK] ConfigStore.reload() picks up settings-dialog writes")
+
+
 TESTS = [
     test_migration_6_removes_db_path,
     test_fresh_db_reaches_schema_version,
     test_removed_keys_not_in_defaults,
     test_cli_db_flag,
     test_port_flag_is_used,
+    test_config_reload_sees_settings_dialog_writes,
 ]
 
 

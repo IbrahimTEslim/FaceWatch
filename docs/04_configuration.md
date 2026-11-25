@@ -1,6 +1,6 @@
 # Configuration Reference
 
-All config is stored in the SQLite `config` table and seeded from `config_defaults.py` on first launch via `INSERT OR IGNORE`. Changes take effect immediately — no restart needed.
+All config is stored in the SQLite `config` table and seeded from `config_defaults.py` on first launch via `INSERT OR IGNORE`. Changes made in the settings window take effect when the window closes. A few values are read once at startup and need a restart: camera index, face landmarker model, max faces, face box colors, key bindings, and the alert overlay style.
 
 Edit config via the settings window (`,` key) or directly in the DB.
 
