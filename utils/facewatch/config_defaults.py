@@ -20,6 +20,7 @@ DEFAULTS = [
     ("gaze_return_sec",          3,             "int",   "Seconds on-screen continuously to clear gaze alert.", "gaze"),
     ("gaze_edge_margin_x_px",    100,           "int",   "Pixel margin outside screen left/right still counted as on-screen.", "gaze"),
     ("gaze_edge_margin_y_px",    200,           "int",   "Pixel margin outside screen top/bottom still counted as on-screen.", "gaze"),
+    ("gaze_smoothing",           0.25,          "float", "Gaze smoothing 0-0.95. Higher = steadier gaze pointer but slower to follow. 0 = Kalman filter only.", "gaze"),
 
     ("proximity_alert_cm",       40.0,          "float", "Distance in cm that triggers proximity alert.", "proximity"),
     ("proximity_alert_sec",      5,             "int",   "Seconds too close before alert fires.", "proximity"),

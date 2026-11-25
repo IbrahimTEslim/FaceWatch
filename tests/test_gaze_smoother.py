@@ -67,12 +67,56 @@ def test_corrected_output_has_less_jitter_than_prediction():
     print(f"  [OK] posterior jitter {np.std(ours[50:]):.1f}px < prior jitter {np.std(prior[50:]):.1f}px")
 
 
+def test_ema_alpha_is_clamped():
+    s = GazeSmoother()
+    s.ema_alpha = 1.0
+    assert s.ema_alpha == GazeSmoother.MAX_EMA_ALPHA
+    s.ema_alpha = -0.3
+    assert s.ema_alpha == 0.0
+    assert GazeSmoother(ema_alpha=5).ema_alpha == GazeSmoother.MAX_EMA_ALPHA
+    print("  [OK] ema_alpha clamped to [0, 0.95]")
+
+
+def test_higher_smoothing_is_steadier():
+    def jitter(alpha):
+        rng = np.random.default_rng(5)
+        s = GazeSmoother(ema_alpha=alpha)
+        s.tune_from_variance(3600.0, 3600.0)
+        outs = [s.step(500 + rng.normal(0, 60), 300)[0] for _ in range(400)]
+        return float(np.std(outs[50:]))
+    j0, j5, j9 = jitter(0.0), jitter(0.5), jitter(0.9)
+    assert j0 > j5 > j9, (j0, j5, j9)
+    print(f"  [OK] jitter falls as smoothing rises (0: {j0:.1f}, 0.5: {j5:.1f}, 0.9: {j9:.1f} px)")
+
+
+def test_gaze_tracker_applies_setting_live():
+    from unittest.mock import MagicMock
+    from analysis.gaze import GazeTracker
+    values = {"gaze_alert_sec": 10, "gaze_return_sec": 3, "gaze_edge_margin_x_px": 0,
+              "gaze_edge_margin_y_px": 0, "gaze_smoothing": 0.25}
+    cfg = MagicMock()
+    cfg.get.side_effect = lambda k: values[k]
+    cal = MagicMock()
+    cal.load_gaze_model.return_value = np.array([[1.0, 0, 0], [0, 1.0, 0]])
+    smoother = GazeSmoother()
+    t = GazeTracker(1920, 1080, smoother=smoother)
+    t.update((100.0, 100.0), 0.03, cfg, cal, 1)
+    assert smoother.ema_alpha == 0.25
+    values["gaze_smoothing"] = 0.7   # user changes the setting
+    t.update((100.0, 100.0), 0.03, cfg, cal, 1)
+    assert smoother.ema_alpha == 0.7
+    print("  [OK] GazeTracker applies gaze_smoothing changes on the next frame")
+
+
 TESTS = [
     test_first_output_equals_measurement,
     test_constant_input_stays_constant,
     test_origin_start_does_not_reinitialise,
     test_less_jitter_than_raw_measurements_when_tuned,
     test_corrected_output_has_less_jitter_than_prediction,
+    test_ema_alpha_is_clamped,
+    test_higher_smoothing_is_steadier,
+    test_gaze_tracker_applies_setting_live,
 ]
 
 
