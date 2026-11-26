@@ -13,6 +13,7 @@ Edit config via the settings window (`,` key) or directly in the DB.
 | `camera_index` | `0` | Webcam index. `0` = first camera. Override with `--camera` CLI arg. |
 | `face_landmarker_model_path` | `models/face_landmarker.task` | Path to MediaPipe model file. |
 | `max_faces` | `10` | Maximum simultaneous faces to detect. |
+| `ptgaze_shared_landmarks` | `false` | Let ptgaze reuse the FaceLandmarker landmarks already computed each frame instead of running its own (identical model). In testing: identical gaze, ~57% less time in the gaze stage. Results map to tracks by landmark index instead of IoU matching. |
 
 ## Storage
 
