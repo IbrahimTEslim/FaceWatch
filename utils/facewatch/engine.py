@@ -92,6 +92,25 @@ def _open_camera(camera_idx: int) -> tuple[cv2.VideoCapture, int, int]:
     return cap, w, h
 
 
+def _estimate_gaze(ptgaze_estimator, frame: np.ndarray, result, tracks: dict[int, list[float]],
+                   mp_map: dict[int, int], shared: bool) -> dict[int, tuple]:
+    """
+    {track_id: (ptgaze face, hit)} for this frame.
+    shared=False: ptgaze runs its own face detection; results matched to tracks by IoU.
+    shared=True:  ptgaze reuses FaceDetector's landmarks (one landmark pass per frame);
+                  results map to tracks through mp_map, no IoU matching needed.
+    """
+    if not shared:
+        return _match_ptgaze_to_tracks(ptgaze_estimator.estimate(frame), tracks)
+    lm_lists = result.face_landmarks if result and result.face_landmarks else []
+    if not lm_lists:
+        return {}
+    used = sorted({idx for idx in mp_map.values() if 0 <= idx < len(lm_lists)})
+    estimates = dict(zip(used, ptgaze_estimator.estimate_from_landmarks(frame, [lm_lists[i] for i in used])))
+    return {tid: estimates[idx] for tid, idx in mp_map.items()
+            if idx in estimates and estimates[idx][0] is not None}
+
+
 def _track_for_face(identities: dict, face_id: int | None) -> int | None:
     """Track id currently identified as face_id, or None if that face isn't in view."""
     if face_id is None:
@@ -275,8 +294,8 @@ def run() -> None:
         active_track_ids = set(tracks.keys())
         frame_h = frame.shape[0]
         mp_map       = _match_tracks_to_mp(result, tracks, frame_w, frame_h)
-        ptgaze_results = ptgaze_estimator.estimate(frame)
-        ptgaze_map   = _match_ptgaze_to_tracks(ptgaze_results, tracks)
+        ptgaze_map   = _estimate_gaze(ptgaze_estimator, frame, result, tracks, mp_map,
+                                      shared=config.get("ptgaze_shared_landmarks"))
 
         # Clean up disappeared tracks
         for tid in list(expressions_map.keys()):

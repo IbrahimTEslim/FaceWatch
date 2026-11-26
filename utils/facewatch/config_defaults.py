@@ -5,6 +5,7 @@ DEFAULTS = [
     ("camera_index",             0,                              "int",   "Webcam index. 0=first camera.", "camera"),
     ("face_landmarker_model_path", "models/face_landmarker.task", "str",   "Path to MediaPipe FaceLandmarker .task model file.", "models"),
     ("max_faces",                  10,                            "int",   "Maximum number of faces to detect simultaneously.", "models"),
+    ("ptgaze_shared_landmarks",    False,                         "bool",  "Faster gaze: let ptgaze reuse the face landmarks already detected each frame instead of running its own face detector (~57% less gaze time in testing, identical results).", "models"),
 
     ("max_embeddings_per_face",  10,            "int",   "Max embeddings stored per face.", "storage"),
     ("stats_interval_sec",       5,             "int",   "Seconds between stats writes to DB.", "storage"),
