@@ -1,4 +1,4 @@
-"""
+r"""
 Smoke tests for Step 11: ui/renderer.py + ui/input_handler.py
 Run from project root:
     venv\Scripts\python.exe tests\test_step11_ui.py
@@ -136,3 +136,4 @@ if __name__ == "__main__":
             print(f"  [FAIL] {t.__name__}: {e}")
 
     print(f"\n{passed}/{len(tests)} tests passed")
+    sys.exit(0 if passed == len(tests) else 1)

@@ -184,3 +184,4 @@ if __name__ == "__main__":
     db.close()
     os.remove(db_path)
     print(f"\n{passed}/{len(tests)} tests passed")
+    sys.exit(0 if passed == len(tests) else 1)
