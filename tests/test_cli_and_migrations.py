@@ -107,6 +107,16 @@ def test_config_reload_sees_settings_dialog_writes():
     print("  [OK] ConfigStore.reload() picks up settings-dialog writes")
 
 
+def test_track_for_face_picks_the_calibrating_face():
+    import engine
+    from types import SimpleNamespace as NS
+    idents = {4: NS(face_id=None), 7: NS(face_id=2), 9: NS(face_id=5)}
+    assert engine._track_for_face(idents, 5) == 9   # not the first track
+    assert engine._track_for_face(idents, 3) is None
+    assert engine._track_for_face(idents, None) is None
+    print("  [OK] gaze wizard is fed the track of the face being calibrated")
+
+
 TESTS = [
     test_migration_6_removes_db_path,
     test_fresh_db_reaches_schema_version,
@@ -114,6 +124,7 @@ TESTS = [
     test_cli_db_flag,
     test_port_flag_is_used,
     test_config_reload_sees_settings_dialog_writes,
+    test_track_for_face_picks_the_calibrating_face,
 ]
 
 

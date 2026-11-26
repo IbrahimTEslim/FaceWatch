@@ -193,6 +193,10 @@ class GazeWizard:
         self._tune_col_start: float | None = None
         self._all_tune_gaze:  list[list[float]] = []
 
+    @property
+    def face_id(self) -> int:
+        return self._face_id
+
     def cancel(self) -> None:
         self._cancelled = True
 

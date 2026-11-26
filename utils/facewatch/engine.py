@@ -92,6 +92,13 @@ def _open_camera(camera_idx: int) -> tuple[cv2.VideoCapture, int, int]:
     return cap, w, h
 
 
+def _track_for_face(identities: dict, face_id: int | None) -> int | None:
+    """Track id currently identified as face_id, or None if that face isn't in view."""
+    if face_id is None:
+        return None
+    return next((tid for tid, ident in identities.items() if ident.face_id == face_id), None)
+
+
 def _crop(frame: np.ndarray, bbox: list[float]) -> np.ndarray:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -446,11 +453,14 @@ def run() -> None:
             renderer.draw_calibration_grid_input(frame, prompt, cal_gaze_input.value)
 
         if gaze_wizard is not None:
-            cal_tid = next(iter(mp_map.keys()), None)
-            cal_gs  = gaze_states.get(cal_tid) if cal_tid else None
+            # Feed only the face being calibrated — with several people in view,
+            # other faces' gaze must not end up in this face's model.
+            cal_tid = _track_for_face(identities_snap, gaze_wizard.face_id)
+            cal_gs  = gaze_states.get(cal_tid) if cal_tid is not None else None
             sx = cal_gs.screen_x if cal_gs else 0.0
             sy = cal_gs.screen_y if cal_gs else 0.0
-            wiz_state = gaze_wizard.feed(ptgaze_results, sx, sy)
+            cal_results = [ptgaze_map[cal_tid]] if cal_tid in ptgaze_map else []
+            wiz_state = gaze_wizard.feed(cal_results, sx, sy)
             # After training, force GazeTracker to reload the new model
             if gaze_wizard.model_ready and cal_tid is not None and cal_tid in gaze_map:
                 gaze_map[cal_tid].reset_model()
