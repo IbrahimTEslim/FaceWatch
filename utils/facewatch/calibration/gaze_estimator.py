@@ -1,4 +1,24 @@
+import pathlib
+
 import numpy as np
+
+# Same checkpoint as ptgaze.utils.download_mpiifacegaze_model()
+_MPIIFACEGAZE_REPO = "hysts/ptgaze-mpiifacegaze-resnet-simple"
+_MPIIFACEGAZE_FILE = "model.safetensors"
+
+
+def mpiifacegaze_checkpoint() -> pathlib.Path:
+    """
+    Path to the ptgaze MPIIFaceGaze checkpoint. Uses the local Hugging Face
+    cache when present; only downloads (contacts huggingface.co) on first run.
+    ptgaze's own download_mpiifacegaze_model() checks the Hub on every start,
+    which sent a network request at each FaceWatch launch.
+    """
+    from huggingface_hub import hf_hub_download
+    try:
+        return pathlib.Path(hf_hub_download(_MPIIFACEGAZE_REPO, _MPIIFACEGAZE_FILE, local_files_only=True))
+    except Exception:  # not cached yet (error class differs across huggingface_hub versions)
+        return pathlib.Path(hf_hub_download(_MPIIFACEGAZE_REPO, _MPIIFACEGAZE_FILE))
 
 
 def ray_hit(face) -> tuple[float, float] | None:
@@ -25,15 +45,10 @@ class PtgazeEstimator:
         uses focal = frame_w and principal point = frame centre, so a wrong size
         skews head pose and the gaze ray.
         """
-        import pathlib
         import ptgaze
         from omegaconf import OmegaConf
         from ptgaze.gaze_estimator import GazeEstimator
-        from ptgaze.utils import (
-            download_mpiifacegaze_model,
-            download_mediapipe_face_landmarker,
-            expanduser_all,
-        )
+        from ptgaze.utils import download_mediapipe_face_landmarker, expanduser_all
         from ptgaze.config_schema import AppConfig
 
         package_root = pathlib.Path(ptgaze.__file__).parent.resolve()
@@ -43,8 +58,8 @@ class PtgazeEstimator:
         cfg.face_detector.mode = "mediapipe"
         cfg.gaze_estimator.use_dummy_camera_params = True
         cfg.gaze_estimator.dummy_camera_size = [int(frame_w), int(frame_h)]
-        cfg.gaze_estimator.checkpoint = download_mpiifacegaze_model().as_posix()
-        download_mediapipe_face_landmarker()
+        cfg.gaze_estimator.checkpoint = mpiifacegaze_checkpoint().as_posix()
+        download_mediapipe_face_landmarker()   # downloads only if the file is missing
         expanduser_all(cfg)
         OmegaConf.set_readonly(cfg, True)
         self._estimator = GazeEstimator(cfg)

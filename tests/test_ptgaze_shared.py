@@ -96,11 +96,38 @@ def test_real_models_identical_gaze():
     print(f"  [OK] real models: shared-landmark gaze identical to ptgaze's own (hit {np.round(h2, 3)})")
 
 
+def test_cached_checkpoint_needs_no_network():
+    """FaceWatch claims to run fully offline; loading the cached gaze model must not hit the Hub."""
+    import socket
+    from huggingface_hub import hf_hub_download
+    from calibration.gaze_estimator import mpiifacegaze_checkpoint, _MPIIFACEGAZE_REPO, _MPIIFACEGAZE_FILE
+    try:
+        hf_hub_download(_MPIIFACEGAZE_REPO, _MPIIFACEGAZE_FILE, local_files_only=True)
+    except Exception:
+        print("  [OK] (skipped: gaze model not cached on this machine)")
+        return
+    attempts = []
+    orig = socket.socket.connect
+
+    def blocked(self, addr):
+        attempts.append(addr)
+        raise OSError("network blocked by test")
+
+    socket.socket.connect = blocked
+    try:
+        path = mpiifacegaze_checkpoint()
+    finally:
+        socket.socket.connect = orig
+    assert path.exists() and not attempts, attempts
+    print("  [OK] cached gaze model loads with zero network connections")
+
+
 TESTS = [
     test_own_detection_path_unchanged,
     test_shared_maps_through_mp_index,
     test_shared_skips_bad_and_empty,
     test_real_models_identical_gaze,
+    test_cached_checkpoint_needs_no_network,
 ]
 
 
