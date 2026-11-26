@@ -42,6 +42,7 @@ The database file itself is chosen with `python main.py --db PATH` (default `fac
 | `gaze_return_sec` | `3` | Seconds on-screen continuously to clear gaze alert. |
 | `gaze_edge_margin_x_px` | `100` | Pixel margin outside screen left/right still counted as on-screen. |
 | `gaze_edge_margin_y_px` | `200` | Pixel margin outside screen top/bottom still counted as on-screen. |
+| `gaze_adaptive_points` | `0` | Extra calibration points (0–60) placed after the grid with best-candidate blue noise so they fill the gaps between grid dots (eyetrax-style adaptive calibration). The mapping is refitted after the grid and every 10 extra points, with a live gaze pointer. About 2.5 s per point. |
 | `gaze_ridge_correction` | `false` | Experimental. During gaze calibration, also learn a ridge-regression correction on eye-landmark features (eyetrax) on top of the ptgaze + affine mapping. It is kept only if it beats the plain mapping on held-out dots; recalibrate after enabling. See [Math & Algorithms](02_math_and_algorithms.md#optional-ridge-correction). |
 | `gaze_smoothing` | `0.25` | EMA weight applied after the Kalman filter, 0–0.95. Higher = steadier gaze pointer but slower to follow; 0 = Kalman only. |
 

@@ -69,6 +69,36 @@ def fit_gaze_affine(raw_pts, scr_pts) -> np.ndarray | None:
     return M.astype(np.float64)
 
 
+_ADAPTIVE_MARGIN_RATIO = 0.08
+_ADAPTIVE_CANDIDATES   = 30
+_ADAPTIVE_REFIT_EVERY  = 10
+
+
+def blue_noise_points(sw: int, sh: int, n: int, existing: list[tuple[int, int]] = (),
+                      rng: np.random.Generator | None = None) -> list[tuple[int, int]]:
+    """
+    n well-spread screen points (best-candidate blue noise, as in eyetrax's
+    adaptive calibration): each new point is the candidate farthest from all
+    points so far, including `existing` (the grid), so extra points fill gaps.
+    """
+    rng = rng or np.random.default_rng()
+    mx, my = int(sw * _ADAPTIVE_MARGIN_RATIO), int(sh * _ADAPTIVE_MARGIN_RATIO)
+    placed = [tuple(p) for p in existing]
+    out: list[tuple[int, int]] = []
+    for _ in range(max(0, n)):
+        cand = np.column_stack([rng.integers(mx, sw - mx + 1, _ADAPTIVE_CANDIDATES),
+                                rng.integers(my, sh - my + 1, _ADAPTIVE_CANDIDATES)])
+        if placed:
+            d2 = ((cand[:, None, :] - np.array(placed)[None, :, :]) ** 2).sum(-1).min(axis=1)
+            best = cand[int(np.argmax(d2))]
+        else:
+            best = cand[0]
+        pt = (int(best[0]), int(best[1]))
+        placed.append(pt)
+        out.append(pt)
+    return out
+
+
 def _tune_points(sw: int, sh: int) -> list[tuple[int, int]]:
     return [
         (sw // 2,     sh // 4),
@@ -101,6 +131,7 @@ class WizardState:
     dot_ry:      float | None = None
     phase_t:     float = 0.0
     is_tune:     bool  = False
+    show_gaze:   bool  = False   # show the live gaze pointer (adaptive points)
 
 
 class FocalWizard:
@@ -176,7 +207,7 @@ class GazeWizard:
     def __init__(self, store: CalibrationStore, face_id: int,
                  smoother: GazeSmoother, sw: int, sh: int,
                  rows: int = _DEFAULT_ROWS, cols: int = _DEFAULT_COLS,
-                 ridge_enabled: bool = False):
+                 ridge_enabled: bool = False, adaptive_points: int = 0):
         self._store        = store
         self._face_id      = face_id
         self._smoother     = smoother
@@ -189,9 +220,12 @@ class GazeWizard:
         self._train_thread:  threading.Thread | None = None
         self._train_result:  tuple | None = None
         self._correction     = None
-        self._report: dict   = {"correction_enabled": ridge_enabled}
+        self._report: dict   = {"correction_enabled": ridge_enabled,
+                                "adaptive_points": max(0, adaptive_points)}
 
-        self._pts      = _grid_points(sw, sh, rows, cols)
+        grid           = _grid_points(sw, sh, rows, cols)
+        self._n_grid   = len(grid)
+        self._pts      = grid + blue_noise_points(sw, sh, adaptive_points, existing=grid)
         self._tune_pts = _tune_points(sw, sh)
         self._pt_idx   = 0
         self._phase    = _Phase.INTRO
@@ -287,7 +321,7 @@ class GazeWizard:
             self._phase_start = now
         return WizardState(
             samples=0, needed=len(self._pts),
-            instruction="9-point gaze calibration. Look at each dot as it appears and hold still.",
+            instruction=f"{len(self._pts)}-point gaze calibration. Look at each dot as it appears and hold still.",
             accepted=False, done=False,
         )
 
@@ -301,6 +335,35 @@ class GazeWizard:
             accepted=False, done=False,
         )
 
+    def _in_adaptive(self) -> bool:
+        return self._pt_idx >= self._n_grid
+
+    def _point_label(self) -> str:
+        if self._in_adaptive():
+            n_extra = len(self._pts) - self._n_grid
+            return f"Extra point {self._pt_idx - self._n_grid + 1} of {n_extra}"
+        return f"Point {self._pt_idx + 1} of {self._n_grid}"
+
+    def _maybe_interim_refit(self) -> None:
+        """
+        Adaptive points: refit after the grid and every few extra points so the
+        live gaze pointer improves while the user continues.
+        """
+        idx = self._pt_idx
+        if not (self._n_grid <= idx < len(self._pts)):
+            return
+        if (idx - self._n_grid) % _ADAPTIVE_REFIT_EVERY or len(self._raw_pts) < 4:
+            return
+        M = fit_gaze_affine(self._raw_pts, self._scr_pts)
+        if M is None:
+            return
+        if self._affine_M is None:
+            # the old correction was learned against the previous affine
+            self._store.delete_gaze_correction(self._face_id)
+        self._affine_M = M
+        self._store.save_gaze_model(self._face_id, M)
+        self._model_ready = True
+
     def _phase_pulse(self, now: float, elapsed: float) -> WizardState:
         x, y = self._pts[self._pt_idx]
         if elapsed >= _PULSE_SEC:
@@ -308,14 +371,16 @@ class GazeWizard:
             self._phase_start = now
         return WizardState(
             samples=self._pt_idx, needed=len(self._pts),
-            instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — look at the dot",
+            instruction=f"{self._point_label()} — look at the dot",
             accepted=False, done=False,
             dot_rx=self._rx(x), dot_ry=self._ry(y),
             phase_t=min(elapsed / _PULSE_SEC, 1.0),
+            show_gaze=self._in_adaptive(),
         )
 
     def _phase_capture(self, now: float, elapsed: float, ptgaze_results: list) -> WizardState:
         x, y = self._pts[self._pt_idx]
+        label, show_gaze = self._point_label(), self._in_adaptive()
         for _, hit in ptgaze_results:
             if hit is not None:
                 self._dot_samples.append(hit)
@@ -330,14 +395,16 @@ class GazeWizard:
                 self._scr_pts.append([float(x), float(y)])
             self._dot_samples = []
             self._pt_idx += 1
+            self._maybe_interim_refit()
             self._phase = _Phase.PULSE if self._pt_idx < len(self._pts) else _Phase.TRAINING
             self._phase_start = now
         return WizardState(
             samples=self._pt_idx, needed=len(self._pts),
-            instruction=f"Point {self._pt_idx + 1} of {len(self._pts)} — hold still",
+            instruction=f"{label} — hold still",
             accepted=True, done=False,
             dot_rx=self._rx(x), dot_ry=self._ry(y),
             phase_t=min(elapsed / _CAPTURE_SEC, 1.0),
+            show_gaze=show_gaze,
         )
 
     def _phase_training(self, now: float) -> WizardState:

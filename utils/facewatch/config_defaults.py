@@ -21,6 +21,7 @@ DEFAULTS = [
     ("gaze_edge_margin_x_px",    100,           "int",   "Pixel margin outside screen left/right still counted as on-screen.", "gaze"),
     ("gaze_edge_margin_y_px",    200,           "int",   "Pixel margin outside screen top/bottom still counted as on-screen.", "gaze"),
     ("gaze_smoothing",           0.25,          "float", "Gaze smoothing 0-0.95. Higher = steadier gaze pointer but slower to follow. 0 = Kalman filter only.", "gaze"),
+    ("gaze_adaptive_points",     0,             "int",   "Extra well-spread calibration points after the grid (0 = off, ~2.5 s each). Refits every 10 points with a live gaze pointer.", "gaze"),
     ("gaze_ridge_correction",    False,         "bool",  "Experimental: learn an eye-feature correction during gaze calibration (eyetrax ridge). Kept only if it beats the plain mapping on held-out dots. Recalibrate after enabling.", "gaze"),
 
     ("proximity_alert_cm",       40.0,          "float", "Distance in cm that triggers proximity alert.", "proximity"),

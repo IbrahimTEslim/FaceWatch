@@ -472,13 +472,14 @@ def run() -> None:
                 dot_rx=wiz_state.dot_rx, dot_ry=wiz_state.dot_ry,
                 phase_t=wiz_state.phase_t, is_tune=wiz_state.is_tune,
             )
-            # Show gaze pointer automatically during tune so user can see where they're looking
-            if wiz_state.is_tune and cal_gs and cal_gs.face_present:
+            # Show the live gaze pointer during tune and adaptive points so the
+            # user can see where they're looking (only when gaze is tracking)
+            if (wiz_state.is_tune or wiz_state.show_gaze) and cal_gs and cal_gs.tracking:
                 ident = identities_snap.get(cal_tid)
                 if ident and ident.face_id:
                     cal_overlay.show_gaze(ident.face_id, sx, sy)
-            elif not wiz_state.is_tune:
-                # Hide any active gaze pointer outside tune phase
+            else:
+                # Hide the pointer otherwise
                 ident = identities_snap.get(cal_tid) if cal_tid else None
                 if ident and ident.face_id:
                     cal_overlay.hide_gaze(ident.face_id)
@@ -534,6 +535,7 @@ def run() -> None:
                             screen_w, screen_h,
                             rows=cal_gaze_rows, cols=cols,
                             ridge_enabled=config.get("gaze_ridge_correction"),
+                            adaptive_points=config.get("gaze_adaptive_points"),
                         )
                         cal_overlay.start()
                         cal_gaze_input = None

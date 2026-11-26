@@ -19,6 +19,7 @@ LIMITS: dict[str, tuple] = {
     "gaze_alert_sec":            (1,    120),
     "gaze_return_sec":           (1,    60),
     "gaze_smoothing":            (0.0,  0.95),
+    "gaze_adaptive_points":      (0,    60),
     "proximity_alert_cm":        (10.0, 200.0),
     "proximity_alert_sec":       (1,    60),
     "proximity_clear_sec":       (1,    120),

@@ -54,16 +54,16 @@ class _Clock:
         return self.t
 
 
-def _run_wizard(ridge_enabled, pose_bias=True, seed=0):
+def _run_wizard(ridge_enabled, pose_bias=True, seed=0, adaptive=0, states=None):
     rng = np.random.default_rng(seed)
     clock, store = _Clock(), MagicMock()
     with patch.object(wizard_mod.time, "monotonic", clock), \
          patch.object(wizard_mod, "extract_features", _fake_features), \
          patch.object(wizard_mod, "BlinkDetector", _FakeBlink):
         wiz = GazeWizard(store, face_id=7, smoother=MagicMock(), sw=SW, sh=SH,
-                         rows=3, cols=3, ridge_enabled=ridge_enabled)
+                         rows=3, cols=3, ridge_enabled=ridge_enabled, adaptive_points=adaptive)
         state = None
-        for _ in range(20000):
+        for _ in range(40000):
             if wiz._phase is _Phase.TRAINING_CORRECTION:
                 wiz._train_thread.join()
             in_tune = wiz._phase in (_Phase.TUNE_PULSE, _Phase.TUNE_CAPTURE)
@@ -73,6 +73,8 @@ def _run_wizard(ridge_enabled, pose_bias=True, seed=0):
                 target = wiz._pts[min(wiz._pt_idx, len(wiz._pts) - 1)]
             hit, lms = _frame(target, rng, pose_bias)
             state = wiz.feed([(object(), hit)], target[0], target[1], landmarks=lms)
+            if states is not None:
+                states.append((wiz._pt_idx, state, wiz.model_ready))
             if state.done:
                 break
             clock.t += 1 / 30
@@ -127,6 +129,46 @@ def test_wizard_skips_blink_frames():
         assert wiz._frame_features(lms) is not None
         assert wiz._frame_features(None) is None
     print("  [OK] blink frames give no correction samples")
+
+
+# ── Adaptive points ──────────────────────────────────────────────────────────
+
+def test_blue_noise_points_fill_gaps():
+    grid = wizard_mod._grid_points(SW, SH, 3, 3)
+    rng = np.random.default_rng(0)
+    pts = wizard_mod.blue_noise_points(SW, SH, 20, existing=grid, rng=rng)
+    assert len(pts) == 20
+    mx, my = int(SW * 0.08), int(SH * 0.08)
+    assert all(mx <= x <= SW - mx and my <= y <= SH - my for x, y in pts)
+
+    def min_gap(points):
+        allp = np.array(grid + points, dtype=float)
+        d = np.linalg.norm(allp[:, None] - allp[None], axis=-1)
+        d[np.diag_indices(len(allp))] = np.inf
+        return d.min()
+
+    uniform = [(int(rng.integers(mx, SW - mx)), int(rng.integers(my, SH - my))) for _ in range(20)]
+    assert min_gap(pts) > 2 * min_gap(uniform), (min_gap(pts), min_gap(uniform))
+    assert wizard_mod.blue_noise_points(SW, SH, 0, existing=grid) == []
+    print(f"  [OK] blue-noise points spread out (min gap {min_gap(pts):.0f}px vs "
+          f"{min_gap(uniform):.0f}px uniform)")
+
+
+def test_wizard_adaptive_points_refit_and_live_pointer():
+    trace = []
+    wiz, store, state = _run_wizard(ridge_enabled=True, adaptive=12, seed=4, states=trace)
+    assert state.done and len(wiz._pts) == 21
+    # affine saved after the grid (idx 9), after 10 extra points (idx 19), and at the end
+    assert store.save_gaze_model.call_count == 3, store.save_gaze_model.call_count
+    grid_states  = [s for _, s, _ in trace if s.instruction.startswith("Point ")]
+    extra_states = [s for _, s, _ in trace if s.instruction.startswith("Extra point ")]
+    assert grid_states and not any(s.show_gaze for s in grid_states)
+    assert extra_states and all(s.show_gaze for s in extra_states)
+    assert any("Extra point 1 of 12" in s.instruction for s in extra_states)
+    assert any("Point 9 of 9" in s.instruction for s in grid_states)
+    assert wiz.report["correction"]["n_dots"] == 21 and wiz.report["adaptive_points"] == 12
+    print(f"  [OK] 12 adaptive points: refits after grid and every 10, live pointer, "
+          f"correction validated on {wiz.report['correction']['n_dots']} dots")
 
 
 # ── GazeTracker runtime ──────────────────────────────────────────────────────
@@ -224,6 +266,8 @@ TESTS = [
     test_wizard_rejects_useless_correction,
     test_wizard_disabled_removes_stale_correction,
     test_wizard_skips_blink_frames,
+    test_blue_noise_points_fill_gaps,
+    test_wizard_adaptive_points_refit_and_live_pointer,
     test_tracker_applies_correction_only_when_enabled,
     test_tracker_without_correction_model_is_affine_only,
     test_tracker_clamps_large_correction,
