@@ -57,11 +57,11 @@ def test_config_reset_to_default(db):
 
 
 def test_faces(db):
-    face_id = db.upsert_face("Ibrahim", "known")
+    face_id = db.upsert_face("Ibrahim", "Ibrahim", "known")
     assert isinstance(face_id, int) and face_id > 0
 
     # Upsert again — should return same id
-    same_id = db.upsert_face("Ibrahim", "known")
+    same_id = db.upsert_face("Ibrahim", "Ibrahim", "known")
     assert same_id == face_id
 
     face = db.get_face_by_name("Ibrahim")
@@ -69,14 +69,14 @@ def test_faces(db):
     assert face["status"] == "known"
 
     db.update_face_last_seen(face_id)
-    db.rename_face(face_id, "Ibrahim_renamed")
+    db.rename_face(face_id, "Ibrahim_renamed", "Ibrahim Renamed")
     assert db.get_face_by_name("Ibrahim_renamed") is not None
 
     print("  [OK] Face upsert, get, rename, last_seen work")
 
 
 def test_embeddings(db):
-    face_id = db.upsert_face("EmbedTest", "known")
+    face_id = db.upsert_face("EmbedTest", "EmbedTest", "known")
     arr = np.random.rand(128).astype(np.float32)
     blob = db.array_to_blob(arr)
     db.add_embedding(face_id, blob)
@@ -90,7 +90,7 @@ def test_embeddings(db):
 
 
 def test_demographics(db):
-    face_id = db.upsert_face("DemoTest", "known")
+    face_id = db.upsert_face("DemoTest", "DemoTest", "known")
     db.upsert_demographics(face_id, 28, "Man", "middle eastern", 14.0, 92.5)
     demo = db.get_demographics(face_id)
     assert demo["age_estimate"] == 28
@@ -103,7 +103,7 @@ def test_demographics(db):
 
 
 def test_stats(db):
-    face_id = db.upsert_face("StatsTest", "known")
+    face_id = db.upsert_face("StatsTest", "StatsTest", "known")
     row = {
         "timestamp": "2024-01-15T14:32:07Z",
         "interval_sec": 5,
@@ -133,16 +133,14 @@ def test_calibration(db):
 def test_audit_log(db):
     db.log_audit("session_start", {"camera": 0})
     db.log_audit("face_registered", {"name": "Ibrahim"})
-    logs = db.get_audit_log("2024")  # won't match today's date
-    today_logs = db.get_audit_log(
-        __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%d")
-    )
+    # Timestamps are local time (storage.db.connection.now_utc, despite its name)
+    today_logs = db.get_audit_log(__import__("datetime").datetime.now().strftime("%Y-%m-%d"))
     assert len(today_logs) >= 2
     print("  [OK] Audit log write and query work")
 
 
 def test_delete_cascade(db):
-    face_id = db.upsert_face("DeleteTest", "known")
+    face_id = db.upsert_face("DeleteTest", "DeleteTest", "known")
     db.add_embedding(face_id, db.array_to_blob(np.zeros(128)))
     db.upsert_demographics(face_id, 25, "Man", "asian", 14.0, 88.0)
     db.delete_face(face_id)
@@ -186,3 +184,4 @@ if __name__ == "__main__":
     db.close()
     os.remove(db_path)
     print(f"\n{passed}/{len(tests)} tests passed")
+    sys.exit(0 if passed == len(tests) else 1)

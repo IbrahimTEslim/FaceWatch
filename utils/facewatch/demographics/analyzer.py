@@ -28,6 +28,9 @@ class DemographicsAnalyzer:
             return
         refresh_days: int = self._config.get("demographics_refresh_days")
         last = datetime.fromisoformat(row["last_updated"])
+        if last.tzinfo is not None:
+            # Older rows were written as UTC ("...Z"); compare in naive local time.
+            last = last.astimezone().replace(tzinfo=None)
         age_sec = (datetime.now() - last).total_seconds()
         if age_sec > refresh_days * 86400:
             self._run_async(face_id, face_crop)

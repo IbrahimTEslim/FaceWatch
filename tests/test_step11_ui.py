@@ -1,4 +1,4 @@
-"""
+r"""
 Smoke tests for Step 11: ui/renderer.py + ui/input_handler.py
 Run from project root:
     venv\Scripts\python.exe tests\test_step11_ui.py
@@ -20,13 +20,8 @@ from analysis.gaze import GazeState
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _config(**overrides):
-    defaults = {
-        "key_quit": "q", "key_register": "r", "key_calibrate": "c",
-        "key_debug": "d", "key_force_stats": "s", "key_force_reidentify": "f",
-        "box_color_known": "0,220,0",
-        "box_color_identifying": "220,220,0",
-        "box_color_unknown": "0,165,255",
-    }
+    from config_defaults import DEFAULTS
+    defaults = {key: value for key, value, *_ in DEFAULTS}  # stays in sync with new keys
     defaults.update(overrides)
     cfg = MagicMock()
     cfg.get.side_effect = lambda k: defaults[k]
@@ -141,3 +136,4 @@ if __name__ == "__main__":
             print(f"  [FAIL] {t.__name__}: {e}")
 
     print(f"\n{passed}/{len(tests)} tests passed")
+    sys.exit(0 if passed == len(tests) else 1)
