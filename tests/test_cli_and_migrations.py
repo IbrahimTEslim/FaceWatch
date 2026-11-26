@@ -117,6 +117,53 @@ def test_track_for_face_picks_the_calibrating_face():
     print("  [OK] gaze wizard is fed the track of the face being calibrated")
 
 
+def test_gaze_correction_storage():
+    import numpy as np
+    from calibration.store import CalibrationStore
+    from calibration.ridge_correction import RidgeCorrection
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(os.path.join(tmp, "corr.db"))
+        try:
+            store = CalibrationStore(db)
+            fid = db.upsert_face("alice", "Alice", "known")
+            assert store.load_gaze_correction(fid) is None
+
+            model = RidgeCorrection(mean=np.zeros(4), scale=np.ones(4), coef=np.ones((4, 2)),
+                                    intercept=np.array([1.0, -2.0]), alpha=10.0)
+            store.save_gaze_correction(fid, model, {"accepted": True, "affine_err_px": 80.0})
+            back = store.load_gaze_correction(fid)
+            assert np.allclose(back.predict(np.ones(4)), [5.0, 2.0])
+            _, report = db.load_gaze_correction(fid)
+            assert '"affine_err_px": 80.0' in report
+
+            db._cx.conn.execute("UPDATE face_gaze_correction SET model_blob=? WHERE face_id=?", (b"junk", fid))
+            assert store.load_gaze_correction(fid) is None   # unreadable -> affine only
+
+            store.save_gaze_correction(fid, model, {})
+            db.delete_face(fid)                              # cascade
+            assert db.load_gaze_correction(fid) == (None, None)
+        finally:
+            db.close()
+    print("  [OK] gaze correction save/load, bad blob -> None, cascade on face delete")
+
+
+def test_migration_7_from_v6():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "v6.db")
+        Database(path).close()
+        conn = sqlite3.connect(path)
+        conn.execute("DROP TABLE face_gaze_correction")
+        conn.execute("PRAGMA user_version = 6")
+        conn.commit(); conn.close()
+        db = Database(path)
+        try:
+            tables = {r[0] for r in db._cx.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            assert "face_gaze_correction" in tables and "face_gaze_model" in tables
+        finally:
+            db.close()
+    print("  [OK] migration 7 adds face_gaze_correction to a v6 DB")
+
+
 TESTS = [
     test_migration_6_removes_db_path,
     test_fresh_db_reaches_schema_version,
@@ -125,6 +172,8 @@ TESTS = [
     test_port_flag_is_used,
     test_config_reload_sees_settings_dialog_writes,
     test_track_for_face_picks_the_calibrating_face,
+    test_gaze_correction_storage,
+    test_migration_7_from_v6,
 ]
 
 

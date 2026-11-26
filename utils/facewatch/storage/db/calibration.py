@@ -46,6 +46,35 @@ class CalibrationQueries:
             return None, None
         return pickle.loads(row["model_blob"]), row["calibrated_at"]
 
+    def save_gaze_correction(self, face_id: int, blob: bytes, report_json: str) -> None:
+        with self._cx.lock:
+            self._cx.conn.execute(
+                """INSERT INTO face_gaze_correction (face_id, model_blob, report, calibrated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(face_id) DO UPDATE SET
+                       model_blob=excluded.model_blob,
+                       report=excluded.report,
+                       calibrated_at=excluded.calibrated_at""",
+                (face_id, blob, report_json, now_utc()),
+            )
+            self._cx.conn.commit()
+
+    def load_gaze_correction(self, face_id: int) -> tuple[bytes | None, str | None]:
+        row = self._cx.conn.execute(
+            "SELECT model_blob, report FROM face_gaze_correction WHERE face_id=?",
+            (face_id,),
+        ).fetchone()
+        if row is None:
+            return None, None
+        return bytes(row["model_blob"]), row["report"]
+
+    def delete_gaze_correction(self, face_id: int) -> None:
+        with self._cx.lock:
+            self._cx.conn.execute(
+                "DELETE FROM face_gaze_correction WHERE face_id=?", (face_id,)
+            )
+            self._cx.conn.commit()
+
     def delete_gaze_model(self, face_id: int) -> None:
         with self._cx.lock:
             self._cx.conn.execute(
