@@ -1,3 +1,4 @@
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -8,6 +9,8 @@ import cv2
 
 from calibration.store import CalibrationStore
 from calibration.smoother import GazeSmoother
+from calibration.eye_features import extract_features, BlinkDetector
+from calibration.ridge_correction import Sample, train_correction, apply_affine
 from demographics.face_width import DEFAULT_FACE_WIDTH_CM
 
 _LEFT_CHEEK    = 234
@@ -80,6 +83,7 @@ class _Phase(Enum):
     PULSE        = auto()
     CAPTURE      = auto()
     TRAINING     = auto()
+    TRAINING_CORRECTION = auto()
     TUNE_PULSE   = auto()
     TUNE_CAPTURE = auto()
     DONE         = auto()
@@ -158,20 +162,34 @@ class FocalWizard:
 class GazeWizard:
     """
     9-point calibration + Kalman tune pass, fully feed-driven.
-    Engine calls feed(ptgaze_results, sx, sy) every frame.
-    ptgaze_results is the output of PtgazeEstimator.estimate() — already computed by engine.
+    Engine calls feed(ptgaze_results, sx, sy, landmarks) every frame.
+    ptgaze_results is the calibrating face's PtgazeEstimator result — already computed by engine.
     sx/sy are current smoothed gaze predictions in pixels — only used during tune phase.
-    On completion, fitted affine M saved to CalibrationStore.
-    Smoother is tuned in-place.
+    landmarks are the calibrating face's MediaPipe landmarks — only used when
+    ridge_enabled (optional eyetrax correction, calibration/ridge_correction.py).
+    On completion, fitted affine M saved to CalibrationStore; with ridge_enabled
+    the correction is trained in a background thread and saved only if it
+    beats affine-only on held-out dots (else any old correction is removed).
+    Smoother is tuned in-place. `report` summarises the calibration.
     """
 
     def __init__(self, store: CalibrationStore, face_id: int,
                  smoother: GazeSmoother, sw: int, sh: int,
-                 rows: int = _DEFAULT_ROWS, cols: int = _DEFAULT_COLS):
+                 rows: int = _DEFAULT_ROWS, cols: int = _DEFAULT_COLS,
+                 ridge_enabled: bool = False):
         self._store        = store
         self._face_id      = face_id
         self._smoother     = smoother
         self._sw, self._sh = sw, sh
+        self._ridge_enabled = ridge_enabled
+        self._blink         = BlinkDetector()
+        self._cur_feats: np.ndarray | None = None   # this frame's eye features (None on blink)
+        self._frame_samples: list[Sample] = []      # per-frame samples for the correction
+        self._tune_samples:  list[tuple]  = []      # (target, hit, feats) for held-out check
+        self._train_thread:  threading.Thread | None = None
+        self._train_result:  tuple | None = None
+        self._correction     = None
+        self._report: dict   = {"correction_enabled": ridge_enabled}
 
         self._pts      = _grid_points(sw, sh, rows, cols)
         self._tune_pts = _tune_points(sw, sh)
@@ -192,6 +210,7 @@ class GazeWizard:
         self._tune_collecting = False
         self._tune_col_start: float | None = None
         self._all_tune_gaze:  list[list[float]] = []
+        self._tune_point_samples: list[tuple] = []
 
     @property
     def face_id(self) -> int:
@@ -208,6 +227,19 @@ class GazeWizard:
             return True
         return False
 
+    @property
+    def report(self) -> dict:
+        """Calibration summary (dots used, correction CV result, tune-point errors)."""
+        return dict(self._report)
+
+    def _frame_features(self, landmarks: list | None) -> np.ndarray | None:
+        if not self._ridge_enabled or not landmarks:
+            return None
+        if self._blink.is_blinking(landmarks):   # also keeps the EAR baseline current
+            return None
+        feats, _ = extract_features(landmarks)
+        return feats
+
     def _rx(self, x: int) -> float:
         return x / self._sw
 
@@ -215,7 +247,8 @@ class GazeWizard:
         return y / self._sh
 
     def feed(self, ptgaze_results: list,
-             sx: float = 0.0, sy: float = 0.0) -> WizardState:
+             sx: float = 0.0, sy: float = 0.0,
+             landmarks: list | None = None) -> WizardState:
         if self._cancelled:
             return WizardState(
                 samples=0, needed=len(self._pts),
@@ -224,18 +257,29 @@ class GazeWizard:
             )
         now     = time.monotonic()
         elapsed = now - self._phase_start
+        self._cur_feats = self._frame_features(landmarks)
         if self._phase == _Phase.INTRO:        return self._phase_intro(now, elapsed)
         if self._phase == _Phase.WAITING:      return self._phase_waiting(now, ptgaze_results)
         if self._phase == _Phase.PULSE:        return self._phase_pulse(now, elapsed)
         if self._phase == _Phase.CAPTURE:      return self._phase_capture(now, elapsed, ptgaze_results)
         if self._phase == _Phase.TRAINING:     return self._phase_training(now)
+        if self._phase == _Phase.TRAINING_CORRECTION: return self._phase_training_correction(now)
         if self._phase == _Phase.TUNE_PULSE:   return self._phase_tune_pulse(now, elapsed)
-        if self._phase == _Phase.TUNE_CAPTURE: return self._phase_tune_capture(now, sx, sy)
+        if self._phase == _Phase.TUNE_CAPTURE: return self._phase_tune_capture(now, sx, sy, ptgaze_results)
         return WizardState(
             samples=len(self._pts), needed=len(self._pts),
-            instruction="Gaze calibration complete.",
+            instruction=self._done_message(),
             accepted=False, done=True,
         )
+
+    def _done_message(self) -> str:
+        aff = self._report.get("tune_affine_err_px")
+        cor = self._report.get("tune_corrected_err_px")
+        if aff is None:
+            return "Gaze calibration complete."
+        if cor is None:
+            return f"Gaze calibration complete. Check error ~{aff:.0f}px."
+        return f"Gaze calibration complete. Check error ~{aff:.0f}px affine, ~{cor:.0f}px corrected."
 
     def _phase_intro(self, now: float, elapsed: float) -> WizardState:
         if elapsed >= _INTRO_SEC:
@@ -275,6 +319,10 @@ class GazeWizard:
         for _, hit in ptgaze_results:
             if hit is not None:
                 self._dot_samples.append(hit)
+                if self._cur_feats is not None:
+                    self._frame_samples.append(Sample(
+                        dot=self._pt_idx, target=np.array([x, y], dtype=np.float64),
+                        hit=np.asarray(hit, dtype=np.float64), features=self._cur_feats))
         if elapsed >= _CAPTURE_SEC:
             if len(self._dot_samples) >= 5:
                 med = np.median(self._dot_samples, axis=0)
@@ -293,11 +341,56 @@ class GazeWizard:
         )
 
     def _phase_training(self, now: float) -> WizardState:
+        M = None
         if len(self._raw_pts) >= 4:
             M = fit_gaze_affine(self._raw_pts, self._scr_pts)
             if M is not None:
                 self._affine_M = M
                 self._store.save_gaze_model(self._face_id, M)
+        self._report["affine_dots"] = len(self._raw_pts)
+        self._report["affine_saved"] = M is not None
+
+        if M is not None and self._ridge_enabled:
+            samples = list(self._frame_samples)
+            self._train_thread = threading.Thread(
+                target=self._train_correction_worker, args=(samples, M), daemon=True)
+            self._train_thread.start()
+            self._phase = _Phase.TRAINING_CORRECTION
+            self._phase_start = now
+            return WizardState(
+                samples=len(self._pts), needed=len(self._pts),
+                instruction="Calibrated! Training gaze correction...",
+                accepted=False, done=False,
+            )
+        if M is not None:
+            # A correction learned against the previous affine no longer applies.
+            self._store.delete_gaze_correction(self._face_id)
+        return self._start_tune(now)
+
+    def _train_correction_worker(self, samples: list, M: np.ndarray) -> None:
+        try:
+            self._train_result = train_correction(samples, fit_gaze_affine, M)
+        except Exception as e:  # never let the correction break calibration
+            self._train_result = (None, {"accepted": False, "reason": f"error: {e}"})
+
+    def _phase_training_correction(self, now: float) -> WizardState:
+        if self._train_thread is not None and self._train_thread.is_alive():
+            return WizardState(
+                samples=len(self._pts), needed=len(self._pts),
+                instruction="Calibrated! Training gaze correction...",
+                accepted=False, done=False,
+            )
+        model, rep = self._train_result or (None, {"accepted": False, "reason": "no result"})
+        rep = rep if isinstance(rep, dict) else rep.as_dict()
+        if model is not None:
+            self._store.save_gaze_correction(self._face_id, model, rep)
+            self._correction = model
+        else:
+            self._store.delete_gaze_correction(self._face_id)
+        self._report["correction"] = rep
+        return self._start_tune(now)
+
+    def _start_tune(self, now: float) -> WizardState:
         self._model_ready = True
         self._phase = _Phase.TUNE_PULSE
         self._phase_start = now
@@ -326,7 +419,8 @@ class GazeWizard:
             is_tune=True,
         )
 
-    def _phase_tune_capture(self, now: float, sx: float, sy: float) -> WizardState:
+    def _phase_tune_capture(self, now: float, sx: float, sy: float,
+                            ptgaze_results: list | None = None) -> WizardState:
         x, y = self._tune_pts[self._tune_idx]
         prox = self._sw * _TUNE_PROXIMITY_RATIO
         near = (sx - x) ** 2 + (sy - y) ** 2 <= prox ** 2
@@ -336,10 +430,17 @@ class GazeWizard:
             if not self._tune_collecting and now - self._tune_start >= _TUNE_INITIAL_DELAY:
                 self._tune_collecting = True
                 self._tune_col_start  = now
+                self._tune_point_samples = []
             if self._tune_collecting:
                 self._tune_gaze.append([sx, sy])
+                for _, hit in (ptgaze_results or []):
+                    if hit is not None:
+                        self._tune_point_samples.append(
+                            (np.array([x, y], dtype=np.float64), np.asarray(hit, dtype=np.float64),
+                             self._cur_feats))
                 if now - self._tune_col_start >= _TUNE_COLLECT_SEC:
                     self._all_tune_gaze.extend(self._tune_gaze)
+                    self._tune_samples.extend(self._tune_point_samples)
                     self._tune_idx += 1
                     if self._tune_idx >= len(self._tune_pts):
                         self._finish_tune()
@@ -352,6 +453,7 @@ class GazeWizard:
             self._tune_collecting = False
             self._tune_col_start  = None
             self._tune_gaze       = []
+            self._tune_point_samples = []
         return WizardState(
             samples=self._tune_idx, needed=len(self._tune_pts),
             instruction=f"Tune point {self._tune_idx + 1} of {len(self._tune_pts)} — look at the dot",
@@ -363,8 +465,26 @@ class GazeWizard:
         )
 
     def _finish_tune(self) -> None:
+        self._report_tune_errors()
         pts = np.array(self._all_tune_gaze)
         if pts.shape[0] < 2:
             return
         var = np.var(pts, axis=0)
         self._smoother.tune_from_variance(float(var[0]), float(var[1]))
+
+    def _report_tune_errors(self) -> None:
+        """
+        Unsmoothed error at the tune dots, which were not used for training:
+        a held-out check of the affine model (and of the correction, if any).
+        """
+        if self._affine_M is None or not self._tune_samples:
+            return
+        aff, cor = [], []
+        for target, hit, feats in self._tune_samples:
+            p = apply_affine(self._affine_M, hit)[0]
+            aff.append(np.linalg.norm(p - target))
+            if self._correction is not None and feats is not None:
+                cor.append(np.linalg.norm(p + self._correction.predict(feats) - target))
+        self._report["tune_affine_err_px"] = round(float(np.median(aff)), 1)
+        if cor:
+            self._report["tune_corrected_err_px"] = round(float(np.median(cor)), 1)

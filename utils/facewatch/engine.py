@@ -312,7 +312,8 @@ def run() -> None:
                 expr.update(blendshapes, landmarks, config)
 
             gaze_hit = ptgaze_map.get(track_id, (None, None))[1]
-            gaze_state = gaze_map[track_id].update(gaze_hit, dt, config, calibration, identity.face_id)
+            gaze_state = gaze_map[track_id].update(gaze_hit, dt, config, calibration, identity.face_id,
+                                                   landmarks=landmarks)
             gaze_states[track_id] = gaze_state
 
             face_width = demo.get_face_width(identity.face_id) if identity.face_id else DEFAULT_FACE_WIDTH_CM
@@ -460,7 +461,8 @@ def run() -> None:
             sx = cal_gs.screen_x if cal_gs else 0.0
             sy = cal_gs.screen_y if cal_gs else 0.0
             cal_results = [ptgaze_map[cal_tid]] if cal_tid in ptgaze_map else []
-            wiz_state = gaze_wizard.feed(cal_results, sx, sy)
+            cal_lms     = _landmarks_list(result, mp_map.get(cal_tid, -1)) if cal_tid is not None else None
+            wiz_state = gaze_wizard.feed(cal_results, sx, sy, landmarks=cal_lms)
             # After training, force GazeTracker to reload the new model
             if gaze_wizard.model_ready and cal_tid is not None and cal_tid in gaze_map:
                 gaze_map[cal_tid].reset_model()
@@ -480,6 +482,8 @@ def run() -> None:
                 ident = identities_snap.get(cal_tid) if cal_tid else None
                 if ident and ident.face_id:
                     cal_overlay.hide_gaze(ident.face_id)
+            if wiz_state.done:
+                db.log_audit("gaze_calibrated", {"face_id": gaze_wizard.face_id, **gaze_wizard.report})
             if wiz_state.done or wiz_state.cancelled:
                 cal_overlay.hide()
                 ident = identities_snap.get(cal_tid) if cal_tid else None
@@ -529,6 +533,7 @@ def run() -> None:
                             gaze_map[cal_gaze_tid]._smoother,
                             screen_w, screen_h,
                             rows=cal_gaze_rows, cols=cols,
+                            ridge_enabled=config.get("gaze_ridge_correction"),
                         )
                         cal_overlay.start()
                         cal_gaze_input = None

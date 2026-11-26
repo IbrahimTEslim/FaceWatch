@@ -42,6 +42,7 @@ The database file itself is chosen with `python main.py --db PATH` (default `fac
 | `gaze_return_sec` | `3` | Seconds on-screen continuously to clear gaze alert. |
 | `gaze_edge_margin_x_px` | `100` | Pixel margin outside screen left/right still counted as on-screen. |
 | `gaze_edge_margin_y_px` | `200` | Pixel margin outside screen top/bottom still counted as on-screen. |
+| `gaze_ridge_correction` | `false` | Experimental. During gaze calibration, also learn a ridge-regression correction on eye-landmark features (eyetrax) on top of the ptgaze + affine mapping. It is kept only if it beats the plain mapping on held-out dots; recalibrate after enabling. See [Math & Algorithms](02_math_and_algorithms.md#optional-ridge-correction). |
 | `gaze_smoothing` | `0.25` | EMA weight applied after the Kalman filter, 0–0.95. Higher = steadier gaze pointer but slower to follow; 0 = Kalman only. |
 
 Screen size is not configurable: it is detected at startup from the primary screen's logical (DPI-scaled) geometry, reported by the calibration overlay process with a tkinter fallback. See `ui/screen.py`. The `screen_w_px` / `screen_h_px` keys from earlier versions are removed by DB migration 5.
