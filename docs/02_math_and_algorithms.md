@@ -149,13 +149,13 @@ This gives a raw `(x_cm, y_cm)` hit point. Returns `None` if the ray points away
 
 ### Affine calibration
 
-The raw hit point is in camera space and doesn't map directly to screen pixels. A **2×3 affine matrix** is fitted during the 9-point calibration wizard using RANSAC:
+The raw hit point is in camera space and doesn't map directly to screen pixels. A **2×3 affine matrix** is fitted during the calibration wizard (`calibration/wizard.py: fit_gaze_affine`) from the per-dot median hits, using least-median-of-squares (robust to a minority of bad dots, no pixel threshold to tune), with a least-squares fallback:
 
 ```python
 M, _ = cv2.estimateAffine2D(
-    raw_pts,   # shape (N, 2) — raw hit points collected at each calibration dot
+    raw_pts,   # shape (N, 2) — median raw hit point at each calibration dot
     scr_pts,   # shape (N, 2) — screen pixel coordinates of each dot
-    method=cv2.RANSAC,
+    method=cv2.LMEDS,
 )
 ```
 
@@ -165,6 +165,18 @@ At runtime, the affine transform maps raw hits to screen pixels:
 uv = M @ [hit_x, hit_y, 1.0]   # homogeneous multiply
 screen_x, screen_y = uv[0], uv[1]
 ```
+
+### Optional ridge correction
+
+With `gaze_ridge_correction` on, calibration also learns what the affine can't capture — head-pose-dependent bias and per-person eye shape — from eyetrax-style eye features (`calibration/eye_features.py`: 162 eye/brow/face landmarks rotated into a face-aligned frame and scaled by inter-eye distance, plus yaw/pitch/roll; 486 values):
+
+```
+screen = affine(hit) + W·z(features) + b          # z = standardised features
+```
+
+`W, b` come from ridge regression on the residual `target − affine(hit)` over every non-blink calibration frame (`calibration/ridge_correction.py`). The ridge strength α is chosen by **leave-one-dot-out cross-validation** (at most 10 folds): for each fold, both the affine and the ridge are refitted without the held-out dot(s) and scored on them. The correction is stored only if its held-out error is at least 10 % below affine-only; otherwise the face stays affine-only. The wizard also reports both errors at the three tune dots (never used for training) in its final message and in the `gaze_calibrated` audit event.
+
+At runtime the correction is clamped to 30 % of the screen diagonal, and blink frames reuse the last correction.
 
 ### Kalman + EMA smoothing
 

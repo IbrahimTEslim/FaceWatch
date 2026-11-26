@@ -295,7 +295,8 @@ class Renderer:
         if calibration and identity.face_id:
             cal_at = calibration.is_gaze_calibrated(identity.face_id)
             if cal_at:
-                y = _put(canvas, f"Gaze cal  \u2713 {cal_at[:10]}", p, y, _GREEN, _FONT_XS)
+                extra = "  +correction" if gaze and gaze.corrected else ""
+                y = _put(canvas, f"Gaze cal  \u2713 {cal_at[:10]}{extra}", p, y, _GREEN, _FONT_XS)
             else:
                 y = _put(canvas, "Gaze cal  uncalibrated", p, y, _GRAY, _FONT_XS)
 

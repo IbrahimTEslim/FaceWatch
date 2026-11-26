@@ -4,7 +4,7 @@ import threading
 
 import numpy as np
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def now_utc() -> str:
@@ -157,6 +157,21 @@ class Connection:
             with self.lock:
                 self.conn.execute("DELETE FROM config WHERE key = 'db_path'")
                 self.conn.execute("PRAGMA user_version = 6")
+                self.conn.commit()
+        if version < 7:
+            # Optional ridge correction on top of the affine gaze model
+            # (calibration/ridge_correction.py). Separate table so the affine
+            # model in face_gaze_model is untouched.
+            with self.lock:
+                self.conn.execute(
+                    """CREATE TABLE IF NOT EXISTS face_gaze_correction (
+                        face_id       INTEGER PRIMARY KEY REFERENCES faces(id) ON DELETE CASCADE,
+                        model_blob    BLOB NOT NULL,
+                        report        TEXT,
+                        calibrated_at TEXT NOT NULL
+                    )"""
+                )
+                self.conn.execute("PRAGMA user_version = 7")
                 self.conn.commit()
 
     @staticmethod
